@@ -3,22 +3,20 @@
 from __future__ import annotations
 
 import urllib.parse
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import structlog
 from playwright.async_api import Page
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from agent.exceptions import PlaywrightTimeoutError, PostSearchError
+from agent.exceptions import PostSearchError
 from models.post import Post
 from utils.anti_detection import simulate_human_scroll
 
 logger = structlog.get_logger(__name__)
 
 _BASE_SEARCH_URL = (
-    "https://www.linkedin.com/search/results/content/"
-    "?keywords={keywords}&sortBy=date"
+    "https://www.linkedin.com/search/results/content/?keywords={keywords}&sortBy=date"
 )
 _TIMEOUT = 60_000
 _MAX_POSTS_PER_KEYWORD = 10
@@ -38,7 +36,7 @@ def _build_search_url(keyword: str) -> str:
     return _BASE_SEARCH_URL.format(keywords=encoded)
 
 
-async def _extract_post_author_url(page: Page, post_element: object) -> Optional[str]:
+async def _extract_post_author_url(page: Page, post_element: object) -> str | None:
     """Extract the author profile URL from a post element.
 
     Args:
@@ -61,14 +59,13 @@ async def _extract_post_author_url(page: Page, post_element: object) -> Optional
                 href = await el.get_attribute("href")
                 if href and "/in/" in href:
                     # Normalize to base profile URL
-                    parts = href.split("?")[0].rstrip("/")
-                    return parts
+                    return str(href.split("?")[0].rstrip("/"))
     except Exception:
         pass
     return None
 
 
-async def _extract_post_url(post_element: object) -> Optional[str]:
+async def _extract_post_url(post_element: object) -> str | None:
     """Extract the direct URL of a post.
 
     Args:
@@ -88,13 +85,13 @@ async def _extract_post_url(post_element: object) -> Optional[str]:
             if el:
                 href = await el.get_attribute("href")
                 if href:
-                    return href.split("?")[0]
+                    return str(href.split("?")[0])
     except Exception:
         pass
     return None
 
 
-async def _extract_post_snippet(post_element: object) -> Optional[str]:
+async def _extract_post_snippet(post_element: object) -> str | None:
     """Extract text content snippet from a post.
 
     Args:
@@ -114,7 +111,7 @@ async def _extract_post_snippet(post_element: object) -> Optional[str]:
             if el:
                 text = await el.inner_text()
                 if text:
-                    return text[:300].strip()
+                    return str(text[:300].strip())
     except Exception:
         pass
     return None
@@ -165,7 +162,7 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
             if post_elements:
                 break
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         for element in post_elements[:_MAX_POSTS_PER_KEYWORD]:
             try:

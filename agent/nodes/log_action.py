@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -30,7 +30,7 @@ async def log_action(
     """
     from storage.queries import save_run_history
 
-    end_time = datetime.now(timezone.utc).isoformat()
+    end_time = datetime.now(UTC).isoformat()
     metrics = dict(state["run_metrics"])
     metrics["end_time"] = end_time
     metrics["errors_count"] = len(state["errors"])
@@ -41,7 +41,7 @@ async def log_action(
         await save_run_history(
             db,  # type: ignore[arg-type]
             run_id=run_id,
-            started_at=metrics["start_time"],
+            started_at=str(metrics["start_time"]),
             ended_at=end_time,
             metrics=metrics,
         )
@@ -56,7 +56,7 @@ async def log_action(
         profiles_scored=metrics.get("profiles_scored", 0),
         invitations_sent=metrics.get("invitations_sent", 0),
         errors_count=metrics["errors_count"],
-        duration_s=_compute_duration(metrics["start_time"], end_time),
+        duration_s=_compute_duration(str(metrics["start_time"]), end_time),
     )
 
     if state["errors"]:

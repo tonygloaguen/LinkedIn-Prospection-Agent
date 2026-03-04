@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -71,9 +71,7 @@ async def send_connection(
             raise QuotaExceededException(f"Max actions ({max_actions}) reached")
 
         if len(invitations_sent) >= max_invitations:
-            raise QuotaExceededException(
-                f"Max invitations per run ({max_invitations}) reached"
-            )
+            raise QuotaExceededException(f"Max invitations per run ({max_invitations}) reached")
 
         # Check DB quotas
         try:
@@ -103,7 +101,7 @@ async def send_connection(
                 await log_action(
                     db,  # type: ignore[arg-type]
                     ActionLog(
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                         action_type="connect",
                         profile_id=profile.id,
                         payload={
@@ -142,7 +140,7 @@ async def send_connection(
             await log_action(
                 db,  # type: ignore[arg-type]
                 ActionLog(
-                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    timestamp=datetime.now(UTC).isoformat(),
                     action_type="error",
                     profile_id=profile.id,
                     success=False,

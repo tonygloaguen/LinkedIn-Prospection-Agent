@@ -6,8 +6,8 @@ import structlog
 from playwright.async_api import Page
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from agent.exceptions import ConnectionSendError, PlaywrightTimeoutError
-from utils.anti_detection import human_click, simulate_human_scroll
+from agent.exceptions import ConnectionSendError
+from utils.anti_detection import simulate_human_scroll
 
 logger = structlog.get_logger(__name__)
 
@@ -22,7 +22,6 @@ async def _screenshot_debug(page: Page, name: str) -> None:
         page: Playwright Page.
         name: Filename suffix for the screenshot.
     """
-    import os
     from pathlib import Path
 
     path = Path("./logs/screenshots")
@@ -105,9 +104,7 @@ async def send_connection_invitation(
         await page.wait_for_timeout(2_000)
         await simulate_human_scroll(page, scroll_count=1)
     except Exception as exc:
-        raise ConnectionSendError(
-            f"Failed to navigate to profile {linkedin_url}: {exc}"
-        ) from exc
+        raise ConnectionSendError(f"Failed to navigate to profile {linkedin_url}: {exc}") from exc
 
     # Check edge cases
     if await _check_already_connected(page):

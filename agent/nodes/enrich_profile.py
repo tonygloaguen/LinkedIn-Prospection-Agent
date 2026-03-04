@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -62,7 +62,7 @@ async def enrich_profile(
             await log_action(
                 db,  # type: ignore[arg-type]
                 ActionLog(
-                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    timestamp=datetime.now(UTC).isoformat(),
                     action_type="scrape",
                     profile_id=scraped.id,
                     payload={"url": scraped.linkedin_url, "has_bio": scraped.bio is not None},
@@ -90,7 +90,7 @@ async def enrich_profile(
             await log_action(
                 db,  # type: ignore[arg-type]
                 ActionLog(
-                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    timestamp=datetime.now(UTC).isoformat(),
                     action_type="error",
                     payload={"url": profile.linkedin_url},
                     success=False,

@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from agent.state import RunMetrics
 
 
-def create_run_metrics(start_time: Optional[str] = None) -> RunMetrics:
+def create_run_metrics(start_time: str | None = None) -> RunMetrics:
     """Create a fresh RunMetrics with default zero values.
 
     Args:
@@ -23,7 +22,7 @@ def create_run_metrics(start_time: Optional[str] = None) -> RunMetrics:
         profiles_scored=0,
         invitations_sent=0,
         errors_count=0,
-        start_time=start_time or datetime.now(timezone.utc).isoformat(),
+        start_time=start_time or datetime.now(UTC).isoformat(),
         end_time=None,
     )
 
@@ -37,4 +36,4 @@ def finalize_metrics(metrics: RunMetrics) -> RunMetrics:
     Returns:
         Updated RunMetrics with end_time set to now.
     """
-    return RunMetrics(**{**metrics, "end_time": datetime.now(timezone.utc).isoformat()})
+    return RunMetrics(**{**metrics, "end_time": datetime.now(UTC).isoformat()})

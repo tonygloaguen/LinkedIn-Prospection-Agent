@@ -181,8 +181,17 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install tools
-        run: pip install "poetry==${{ env.POETRY_VERSION }}" pip-audit
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+          virtualenvs-create: false
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Generate lock file if missing
+        run: poetry lock --no-update
 
       - name: Export requirements (no hashes)
         run: poetry export --without-hashes -f requirements.txt -o requirements.txt

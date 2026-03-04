@@ -11,7 +11,9 @@ from utils.throttle import check_activity_window
 class TestActivityWindow:
     """Tests for the activity window check."""
 
-    def test_check_activity_window_raises_outside_hours(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_check_activity_window_raises_outside_hours(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Raises QuotaExceededException outside 08h-20h."""
         import utils.throttle as throttle_module
 
@@ -20,7 +22,9 @@ class TestActivityWindow:
         with pytest.raises(QuotaExceededException, match="activity window"):
             check_activity_window()
 
-    def test_check_activity_window_passes_during_hours(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_check_activity_window_passes_during_hours(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Does not raise during 08h-20h."""
         import utils.throttle as throttle_module
 

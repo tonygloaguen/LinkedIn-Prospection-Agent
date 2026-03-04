@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from pathlib import Path
 
 import structlog
@@ -102,7 +103,7 @@ def _sanitize_message(raw: str) -> str:
     # Remove common LLM prefixes
     for prefix in ["Voici le message :", "Message :", "Réponse :"]:
         if msg.startswith(prefix):
-            msg = msg[len(prefix):].strip()
+            msg = msg[len(prefix) :].strip()
     return msg[:_MESSAGE_MAX_CHARS]
 
 
@@ -122,10 +123,10 @@ async def generate_message(
     Returns:
         Updated state with messages_generated populated.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    from storage.queries import log_action
     from models.action_log import ActionLog
+    from storage.queries import log_action
 
     messages: dict[str, str] = dict(state["messages_generated"])
     errors = list(state["errors"])
@@ -149,7 +150,9 @@ async def generate_message(
             continue
 
         if profile.score_total < _MIN_SCORE_TO_MESSAGE:
-            logger.debug("profile_below_threshold", name=profile.full_name, score=profile.score_total)
+            logger.debug(
+                "profile_below_threshold", name=profile.full_name, score=profile.score_total
+            )
             continue
 
         try:
@@ -168,7 +171,7 @@ async def generate_message(
             await log_action(
                 db,  # type: ignore[arg-type]
                 ActionLog(
-                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    timestamp=datetime.now(UTC).isoformat(),
                     action_type="message",
                     profile_id=profile.id,
                     payload={"length": len(message), "category": profile.profile_category},
