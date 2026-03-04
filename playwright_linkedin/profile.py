@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import structlog
 from playwright.async_api import Page
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from agent.exceptions import PlaywrightTimeoutError, ProfileScrapingError
+from agent.exceptions import ProfileScrapingError
 from models.profile import Profile
 from utils.anti_detection import simulate_human_scroll
 
@@ -19,7 +18,7 @@ logger = structlog.get_logger(__name__)
 _TIMEOUT = 60_000
 
 
-async def _safe_inner_text(page: Page, selector: str) -> Optional[str]:
+async def _safe_inner_text(page: Page, selector: str) -> str | None:
     """Safely extract inner text from a selector, returning None on failure.
 
     Args:
@@ -39,7 +38,7 @@ async def _safe_inner_text(page: Page, selector: str) -> Optional[str]:
     return None
 
 
-async def _extract_connections_count(page: Page) -> Optional[int]:
+async def _extract_connections_count(page: Page) -> int | None:
     """Extract the connections count from the profile sidebar.
 
     Args:
@@ -96,16 +95,12 @@ async def scrape_profile(page: Page, linkedin_url: str) -> Profile:
         await page.wait_for_timeout(2_000)
         await simulate_human_scroll(page, scroll_count=2)
     except Exception as exc:
-        raise ProfileScrapingError(
-            f"Failed to load profile page {linkedin_url}: {exc}"
-        ) from exc
+        raise ProfileScrapingError(f"Failed to load profile page {linkedin_url}: {exc}") from exc
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     # Full name
-    full_name = await _safe_inner_text(
-        page, "h1.text-heading-xlarge, h1[class*='inline t-24']"
-    )
+    full_name = await _safe_inner_text(page, "h1.text-heading-xlarge, h1[class*='inline t-24']")
 
     # Headline
     headline = await _safe_inner_text(
@@ -114,7 +109,7 @@ async def scrape_profile(page: Page, linkedin_url: str) -> Profile:
     )
 
     # Bio / About section
-    bio: Optional[str] = None
+    bio: str | None = None
     bio_selectors = [
         "#about ~ div .display-flex span[aria-hidden='true']",
         ".pv-shared-text-with-see-more span[aria-hidden='true']",
@@ -153,9 +148,7 @@ async def scrape_profile(page: Page, linkedin_url: str) -> Profile:
     return profile
 
 
-async def scrape_commenters(
-    page: Page, post_url: str, max_commenters: int = 3
-) -> list[str]:
+async def scrape_commenters(page: Page, post_url: str, max_commenters: int = 3) -> list[str]:
     """Extract top commenter profile URLs from a post page.
 
     Args:

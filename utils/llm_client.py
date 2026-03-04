@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Optional
 
 import structlog
 from tenacity import (
@@ -69,7 +68,7 @@ async def _call_gemini_once(prompt: str) -> str:
         # google-generativeai generate_content is synchronous; run in executor
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(None, model.generate_content, prompt)  # type: ignore[attr-defined]
-        return response.text
+        return str(response.text)
     except Exception as exc:
         exc_str = str(exc).lower()
         if "429" in exc_str or "resource_exhausted" in exc_str or "rate" in exc_str:

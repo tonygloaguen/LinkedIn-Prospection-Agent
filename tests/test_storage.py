@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import tempfile
+from datetime import UTC
 from pathlib import Path
 
 import pytest
-import pytest_asyncio
 
 from models.action_log import ActionLog
 from models.post import Post
-from models.profile import Profile, ScoredProfile
+from models.profile import Profile
 from storage.database import init_db
 
 
@@ -129,12 +128,11 @@ class TestActionLogQueries:
 
     async def test_count_today_invitations(self, db_conn: object) -> None:
         """count_today_invitations returns correct count for today."""
-        import asyncio
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from storage.queries import count_today_invitations, log_action
 
-        today = datetime.now(timezone.utc).isoformat()
+        today = datetime.now(UTC).isoformat()
         for _ in range(3):
             await log_action(
                 db_conn,  # type: ignore[arg-type]

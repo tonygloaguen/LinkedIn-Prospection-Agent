@@ -14,7 +14,7 @@ class LinkedInAuthError(LinkedInAgentError):
     """
 
 
-class QuotaExceededException(LinkedInAgentError):
+class QuotaExceededException(LinkedInAgentError):  # noqa: N818
     """Raised when daily invitation or action quota is reached.
 
     Pipeline behaviour: clean stop, log metrics, exit 0.

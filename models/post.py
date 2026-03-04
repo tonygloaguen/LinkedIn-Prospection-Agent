@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Optional
 
 from pydantic import BaseModel, Field, computed_field
 
@@ -22,9 +21,9 @@ class Post(BaseModel):
 
     post_url: str
     author_linkedin_url: str
-    content_snippet: Optional[str] = None
+    content_snippet: str | None = None
     keywords_matched: list[str] = Field(default_factory=list)
-    found_at: Optional[str] = None
+    found_at: str | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-
 
 ActionType = Literal["search", "scrape", "score", "message", "connect", "error"]
 
@@ -25,8 +24,8 @@ class ActionLog(BaseModel):
 
     timestamp: str
     action_type: ActionType
-    profile_id: Optional[str] = None
-    post_id: Optional[str] = None
-    payload: Optional[dict[str, Any]] = Field(default=None)
+    profile_id: str | None = None
+    post_id: str | None = None
+    payload: dict[str, Any] | None = Field(default=None)
     success: bool = True
-    error_message: Optional[str] = None
+    error_message: str | None = None

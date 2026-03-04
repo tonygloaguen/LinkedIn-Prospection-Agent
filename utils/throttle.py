@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import random
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import structlog
 
@@ -20,7 +19,7 @@ _ACTIVITY_HOUR_END = 20
 
 def _current_hour() -> int:
     """Return the current UTC hour (used as proxy for local Paris time)."""
-    return datetime.now(timezone.utc).hour
+    return datetime.now(UTC).hour
 
 
 def check_activity_window() -> None:
@@ -31,9 +30,7 @@ def check_activity_window() -> None:
     """
     hour = _current_hour()
     if not (_ACTIVITY_HOUR_START <= hour < _ACTIVITY_HOUR_END):
-        raise QuotaExceededException(
-            f"Outside activity window (08h-20h UTC). Current hour: {hour}"
-        )
+        raise QuotaExceededException(f"Outside activity window (08h-20h UTC). Current hour: {hour}")
 
 
 async def check_quotas(
@@ -69,9 +66,7 @@ async def check_quotas(
 
     total_actions = today_actions + current_actions_count
     if total_actions >= max_actions:
-        raise QuotaExceededException(
-            f"Daily action quota reached: {total_actions}/{max_actions}"
-        )
+        raise QuotaExceededException(f"Daily action quota reached: {total_actions}/{max_actions}")
 
     logger.debug(
         "quotas_ok",

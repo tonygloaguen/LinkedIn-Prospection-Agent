@@ -7,7 +7,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import structlog
 import typer
@@ -40,7 +40,7 @@ DEFAULT_KEYWORDS = [
 ]
 
 
-def _setup_logging(log_level: str = "INFO", log_file: Optional[str] = None) -> None:
+def _setup_logging(log_level: str = "INFO", log_file: str | None = None) -> None:
     """Configure structlog for JSON-structured logging.
 
     Args:
@@ -102,7 +102,7 @@ def _load_env() -> None:
 @app.command()
 def run(
     keywords: Annotated[
-        Optional[list[str]],
+        list[str] | None,
         typer.Option("--keywords", "-k", help="Search keywords (can repeat)"),
     ] = None,
     max_invitations: Annotated[
@@ -135,7 +135,7 @@ def run(
     max_act = int(os.environ.get("MAX_ACTIONS_PER_DAY", str(max_actions)))
     is_dry = os.environ.get("DRY_RUN", "false").lower() == "true" or dry_run
 
-    typer.echo(f"Starting LinkedIn Prospection Agent")
+    typer.echo("Starting LinkedIn Prospection Agent")
     typer.echo(f"  Keywords: {len(kws)}")
     typer.echo(f"  Max invitations: {max_inv}")
     typer.echo(f"  Max actions: {max_act}")
@@ -164,7 +164,7 @@ def run(
 @app.command()
 def dry_run_cmd(
     keywords: Annotated[
-        Optional[list[str]],
+        list[str] | None,
         typer.Option("--keywords", "-k", help="Search keywords (can repeat)"),
     ] = None,
 ) -> None:
@@ -230,7 +230,8 @@ def stats() -> None:
             typer.echo("\nTop 5 profiles by score:")
             for p in s["top_profiles"][:5]:
                 typer.echo(
-                    f"  [{p['score_total']:.2f}] {p['full_name']} — {p['headline']} ({p['profile_category']})"
+                    f"  [{p['score_total']:.2f}] {p['full_name']} "
+                    f"— {p['headline']} ({p['profile_category']})"
                 )
 
     asyncio.run(_show_stats())

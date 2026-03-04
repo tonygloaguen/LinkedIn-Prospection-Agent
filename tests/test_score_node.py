@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, patch
 
-import pytest
-
-from agent.nodes.score_profile import _parse_score_response, _build_scoring_prompt
+from agent.nodes.score_profile import _build_scoring_prompt, _parse_score_response
 from models.profile import Profile
 
 

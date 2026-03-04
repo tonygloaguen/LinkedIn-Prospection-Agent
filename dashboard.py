@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import typer
 from rich import box
@@ -15,7 +15,9 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-app = typer.Typer(name="dashboard", help="LinkedIn Prospection Agent — Rich Dashboard", add_completion=False)
+app = typer.Typer(
+    name="dashboard", help="LinkedIn Prospection Agent — Rich Dashboard", add_completion=False
+)
 console = Console()
 
 
@@ -25,6 +27,7 @@ def _load_env() -> None:
     if env_path.exists():
         try:
             from dotenv import load_dotenv  # type: ignore[import]
+
             load_dotenv(env_path)
         except ImportError:
             for line in env_path.read_text().splitlines():
@@ -100,7 +103,7 @@ def _render_overview_panel(stats: dict[str, Any], db_path: str) -> Panel:
 
     text = Text()
     text.append(f"Database: {db_path}\n", style="dim")
-    text.append(f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}\n\n", style="dim")
+    text.append(f"Generated: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}\n\n", style="dim")
 
     text.append("Total profiles:       ", style="bold")
     text.append(f"{stats.get('profiles_total', 0)}\n", style="cyan")
@@ -304,8 +307,7 @@ def show(
 
     if not Path(path).exists():
         console.print(
-            f"[red]No database found at {path}[/red]\n"
-            "Run [bold]python main.py run[/bold] first."
+            f"[red]No database found at {path}[/red]\nRun [bold]python main.py run[/bold] first."
         )
         raise typer.Exit(1)
 
@@ -321,6 +323,7 @@ def show(
 
     # Side by side category + status
     from rich.columns import Columns
+
     console.print(Columns([_render_category_table(stats), _render_status_table(stats)]))
     console.print()
 

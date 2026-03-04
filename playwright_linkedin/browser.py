@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import AsyncGenerator, Optional
 
 import structlog
 from playwright.async_api import (
@@ -96,7 +95,7 @@ async def get_browser_context(playwright: Playwright) -> tuple[Browser, BrowserC
 
     context = await browser.new_context(
         user_agent=user_agent,
-        viewport=viewport,  # type: ignore[arg-type]
+        viewport=viewport,
         geolocation=_PARIS_GEO,
         locale="fr-FR",
         timezone_id="Europe/Paris",
@@ -137,9 +136,9 @@ class BrowserManager:
     """
 
     def __init__(self) -> None:
-        self._playwright: Optional[Playwright] = None
-        self._browser: Optional[Browser] = None
-        self._context: Optional[BrowserContext] = None
+        self._playwright: Playwright | None = None
+        self._browser: Browser | None = None
+        self._context: BrowserContext | None = None
 
     async def __aenter__(self) -> tuple[Browser, BrowserContext]:
         """Start Playwright and create browser context."""
