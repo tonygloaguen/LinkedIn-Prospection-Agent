@@ -1,0 +1,17 @@
+Tu analyses la bio LinkedIn d'un profil pour en extraire les informations clés.
+
+Bio à analyser :
+{bio}
+
+Extrait et retourne UNIQUEMENT un JSON valide avec ces champs :
+{
+  "skills": ["liste des compétences techniques mentionnées"],
+  "domains": ["domaines d'expertise principaux"],
+  "seniority": "junior|mid|senior|lead|executive",
+  "languages": ["langages de programmation mentionnés"],
+  "tools": ["outils et technologies mentionnés"],
+  "is_hiring": true|false,
+  "summary": "résumé en 30 mots maximum"
+}
+
+Retourne UNIQUEMENT ce JSON, rien d'autre.

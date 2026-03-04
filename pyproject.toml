@@ -1,0 +1,49 @@
+[tool.poetry]
+name = "linkedin-agent"
+version = "0.1.0"
+description = "LinkedIn Prospection Agent orchestrated by LangGraph"
+authors = ["Tony Gloaguen"]
+readme = "README.md"
+packages = [{include = "agent"}, {include = "models"}, {include = "utils"}, {include = "playwright_linkedin"}, {include = "storage"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+langgraph = ">=0.2"
+langchain-core = ">=0.3"
+playwright = "^1.44"
+playwright-stealth = "^1.0"
+aiosqlite = "^0.20"
+pydantic = "^2.7"
+pydantic-settings = "^2.3"
+structlog = "^24.1"
+tenacity = "^8.3"
+google-generativeai = "^0.7"
+httpx = "^0.27"
+typer = "^0.12"
+rich = "^13.7"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2"
+pytest-asyncio = "^0.23"
+mypy = "^1.10"
+ruff = "^0.4"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -1,0 +1,15 @@
+Tu génères un message de demande de connexion LinkedIn entre pairs techniques.
+200 caractères maximum. Ton direct, collégial, pas corporate.
+
+Contexte expéditeur :
+- IT/Infra 10 ans, spécialisation cybersécurité et DevSecOps
+- Projets actuels : agents LangGraph, monitoring Prometheus/Grafana,
+  pipelines CI/CD sécurisés, automatisation Python
+- Basé Île-de-France
+
+Profil destinataire :
+- Nom : {full_name}
+- Titre : {headline}
+- Thème commun détecté : {common_interest}
+
+Génère le message de connexion. Rien d'autre.

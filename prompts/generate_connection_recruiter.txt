@@ -1,0 +1,16 @@
+Tu génères un message de demande de connexion LinkedIn.
+200 caractères maximum. Ton naturel, professionnel, direct.
+Pas de "j'espère que vous allez bien". Pas de flattery.
+
+Contexte expéditeur :
+- Responsable IT/infrastructure 10 ans d'expérience, Île-de-France
+- Spécialisation : Sysadmin, Cybersécurité blue team, DevSecOps
+- Recherche : opportunités IT senior ou management technique
+- Stack : Windows Server/AD, VMware, Linux, Python, Docker, M365
+
+Profil destinataire :
+- Nom : {full_name}
+- Titre : {headline}
+- Détail notable : {notable_detail}
+
+Génère le message de connexion. Rien d'autre.
