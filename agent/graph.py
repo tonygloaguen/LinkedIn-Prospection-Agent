@@ -14,7 +14,7 @@ from utils.metrics import create_run_metrics
 logger = structlog.get_logger(__name__)
 
 
-def build_graph() -> StateGraph:
+def build_graph() -> StateGraph[LinkedInProspectionState]:
     """Build and compile the LinkedIn Prospection StateGraph.
 
     The pipeline runs sequentially (MAX_CONCURRENT=1) to respect RPi
@@ -23,7 +23,7 @@ def build_graph() -> StateGraph:
     Returns:
         Compiled LangGraph StateGraph.
     """
-    graph = StateGraph(LinkedInProspectionState)
+    graph: StateGraph[LinkedInProspectionState] = StateGraph(LinkedInProspectionState)
 
     # Node wrappers are defined in run_pipeline() to inject dependencies.
     # The graph is compiled with node names only; actual callables are

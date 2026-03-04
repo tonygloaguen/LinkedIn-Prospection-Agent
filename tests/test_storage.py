@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import UTC
 from pathlib import Path
 
+import aiosqlite
 import pytest
 
 from models.action_log import ActionLog
@@ -22,10 +24,8 @@ async def db_path(tmp_path: Path) -> str:
 
 
 @pytest.fixture
-async def db_conn(db_path: str):  # type: ignore[return]
+async def db_conn(db_path: str) -> AsyncIterator[aiosqlite.Connection]:
     """Yield an open aiosqlite connection to the test database."""
-    import aiosqlite
-
     async with aiosqlite.connect(db_path) as conn:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
@@ -70,6 +70,7 @@ class TestProfileQueries:
         await upsert_profile(db_conn, updated)  # type: ignore[arg-type]
 
         fetched = await get_profile_by_id(db_conn, updated.id)  # type: ignore[arg-type]
+        assert fetched is not None
         assert fetched["full_name"] == "Updated Name"
         assert fetched["headline"] == "CTO"
 
@@ -82,6 +83,7 @@ class TestProfileQueries:
         await update_profile_status(db_conn, profile.id, "messaged")  # type: ignore[arg-type]
 
         fetched = await get_profile_by_id(db_conn, profile.id)  # type: ignore[arg-type]
+        assert fetched is not None
         assert fetched["status"] == "messaged"
 
 
@@ -112,7 +114,7 @@ class TestPostQueries:
             author_linkedin_url=author_url,
         )
         await insert_post(db_conn, post)  # type: ignore[arg-type]
-        await insert_post(db_conn, post)  # Should not raise
+        await insert_post(db_conn, post)  # type: ignore[arg-type]  # Should not raise
 
 
 class TestActionLogQueries:

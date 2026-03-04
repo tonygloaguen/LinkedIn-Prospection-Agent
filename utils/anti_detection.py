@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 
 import structlog
-from playwright.async_api import Page
+from playwright.async_api import Page, ViewportSize
 
 logger = structlog.get_logger(__name__)
 
@@ -39,7 +39,7 @@ def get_random_user_agent() -> str:
     return random.choice(_USER_AGENTS)
 
 
-def get_random_viewport() -> dict[str, int]:
+def get_random_viewport() -> ViewportSize:
     """Return a random viewport size within realistic desktop ranges.
 
     Returns:

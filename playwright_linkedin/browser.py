@@ -10,7 +10,9 @@ import structlog
 from playwright.async_api import (
     Browser,
     BrowserContext,
+    Geolocation,
     Playwright,
+    ViewportSize,
     async_playwright,
 )
 
@@ -19,7 +21,7 @@ from utils.anti_detection import get_random_user_agent, get_random_viewport
 logger = structlog.get_logger(__name__)
 
 # Paris geolocation
-_PARIS_GEO = {"latitude": 48.8566, "longitude": 2.3522, "accuracy": 50}
+_PARIS_GEO: Geolocation = {"latitude": 48.8566, "longitude": 2.3522, "accuracy": 50}
 
 
 def _get_session_path() -> str:
