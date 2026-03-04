@@ -12,7 +12,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.11"
-  POETRY_VERSION: "1.8.3"
+  POETRY_VERSION: "2.3.2"
 
 jobs:
   # ────────────────────────────────────────────
@@ -187,11 +187,10 @@ jobs:
           version: ${{ env.POETRY_VERSION }}
           virtualenvs-create: false
 
-      - name: Install pip-audit
-        run: pip install pip-audit
-
-      - name: Generate lock file if missing
-        run: poetry lock --no-update
+      - name: Install pip-audit and export plugin
+        run: |
+          pip install pip-audit
+          poetry self add poetry-plugin-export
 
       - name: Export requirements (no hashes)
         run: poetry export --without-hashes -f requirements.txt -o requirements.txt

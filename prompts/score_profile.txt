@@ -16,5 +16,5 @@ Profils cibles prioritaires : recruteurs IT, CTO, CISO, DevSecOps, SRE,
 Security engineers, Platform engineers, AI/ML/LLM engineers, architectes infra.
 
 Retourne UNIQUEMENT ce JSON, rien d'autre :
-{"score_recruiter": 0.0, "score_technical": 0.0, "score_activity": 0.0,
- "category": "other", "reasoning": "max 50 mots"}
+{{"score_recruiter": 0.0, "score_technical": 0.0, "score_activity": 0.0,
+ "category": "other", "reasoning": "max 50 mots"}}

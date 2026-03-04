@@ -90,22 +90,26 @@ class TestPostQueries:
 
     async def test_insert_post(self, db_conn: object) -> None:
         """Can insert a post without error."""
-        from storage.queries import insert_post
+        from storage.queries import insert_post, upsert_profile
 
+        author_url = "https://www.linkedin.com/in/someone"
+        await upsert_profile(db_conn, Profile(linkedin_url=author_url))  # type: ignore[arg-type]
         post = Post(
             post_url="https://www.linkedin.com/posts/x_abc",
-            author_linkedin_url="https://www.linkedin.com/in/someone",
+            author_linkedin_url=author_url,
             keywords_matched=["LangGraph", "agent"],
         )
         await insert_post(db_conn, post)  # type: ignore[arg-type]
 
     async def test_insert_duplicate_post_ignored(self, db_conn: object) -> None:
         """Duplicate post insert is silently ignored (OR IGNORE)."""
-        from storage.queries import insert_post
+        from storage.queries import insert_post, upsert_profile
 
+        author_url = "https://www.linkedin.com/in/someone-dup"
+        await upsert_profile(db_conn, Profile(linkedin_url=author_url))  # type: ignore[arg-type]
         post = Post(
             post_url="https://www.linkedin.com/posts/x_dup",
-            author_linkedin_url="https://www.linkedin.com/in/someone",
+            author_linkedin_url=author_url,
         )
         await insert_post(db_conn, post)  # type: ignore[arg-type]
         await insert_post(db_conn, post)  # Should not raise
