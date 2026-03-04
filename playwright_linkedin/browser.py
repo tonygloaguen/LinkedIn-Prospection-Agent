@@ -12,7 +12,6 @@ from playwright.async_api import (
     BrowserContext,
     Geolocation,
     Playwright,
-    ViewportSize,
     async_playwright,
 )
 
