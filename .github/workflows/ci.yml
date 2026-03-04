@@ -74,7 +74,6 @@ jobs:
     name: Tests (pytest)
     runs-on: ubuntu-latest
     needs: [lint]
-
     steps:
       - uses: actions/checkout@v4
 
@@ -119,8 +118,24 @@ jobs:
           retention-days: 14
 
   # ────────────────────────────────────────────
-  security:
-    name: Security Scan (pip-audit)
+  # SECURITY
+  # ────────────────────────────────────────────
+
+  secrets-scan:
+    name: "Security — Secret Scanning (Gitleaks)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history to catch secrets in old commits
+
+      - name: Gitleaks — detect hardcoded secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sast:
+    name: "Security — SAST (Bandit)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -130,30 +145,117 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install Poetry + pip-audit
-        run: |
-          pip install poetry==${{ env.POETRY_VERSION }} pip-audit
+      - name: Install Bandit
+        run: pip install bandit[toml]
 
-      - name: Export requirements
+      - name: Bandit — full scan (JSON report)
+        run: |
+          bandit -r agent/ models/ storage/ utils/ playwright_linkedin/ \
+            --severity-level medium \
+            --confidence-level medium \
+            --format json \
+            --output bandit-report.json || true
+
+      - name: Bandit — block on HIGH/CRITICAL findings
+        run: |
+          bandit -r agent/ models/ storage/ utils/ playwright_linkedin/ \
+            --severity-level high \
+            --confidence-level high
+
+      - name: Upload Bandit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-report
+          path: bandit-report.json
+          retention-days: 14
+
+  dependency-audit:
+    name: "Security — Dependency Audit (pip-audit)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install tools
+        run: pip install "poetry==${{ env.POETRY_VERSION }}" pip-audit
+
+      - name: Export requirements (no hashes)
         run: poetry export --without-hashes -f requirements.txt -o requirements.txt
 
-      - name: Run pip-audit
-        run: pip-audit -r requirements.txt --ignore-vuln GHSA-hcpj-qp55-gfph
+      - name: pip-audit — scan CVEs (JSON report)
+        run: |
+          pip-audit \
+            --requirement requirements.txt \
+            --format json \
+            --output pip-audit-report.json \
+            --progress-spinner off || true
+
+      - name: pip-audit — fail on unfixed CVEs
+        run: pip-audit --requirement requirements.txt --progress-spinner off
+
+      - name: Upload pip-audit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pip-audit-report
+          path: pip-audit-report.json
+          retention-days: 14
+
+  codeql:
+    name: "Security — CodeQL"
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"
 
   # ────────────────────────────────────────────
+  # GATE
+  # ────────────────────────────────────────────
+
   ci-ok:
     name: CI OK
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test, security]
+    needs: [lint, typecheck, test, secrets-scan, sast, dependency-audit, codeql]
     if: always()
     steps:
-      - name: All jobs passed
+      - name: Check all jobs passed
         run: |
-          if [[ "${{ needs.lint.result }}" != "success" || \
-                "${{ needs.typecheck.result }}" != "success" || \
-                "${{ needs.test.result }}" != "success" || \
-                "${{ needs.security.result }}" != "success" ]]; then
-            echo "One or more CI jobs failed"
-            exit 1
+          declare -A results=(
+            [lint]="${{ needs.lint.result }}"
+            [typecheck]="${{ needs.typecheck.result }}"
+            [test]="${{ needs.test.result }}"
+            [secrets-scan]="${{ needs.secrets-scan.result }}"
+            [sast]="${{ needs.sast.result }}"
+            [dependency-audit]="${{ needs.dependency-audit.result }}"
+            [codeql]="${{ needs.codeql.result }}"
+          )
+          failed=()
+          for job in "${!results[@]}"; do
+            [[ "${results[$job]}" != "success" ]] && failed+=("$job (${results[$job]})")
+          done
+          if (( ${#failed[@]} > 0 )); then
+            printf "Failed jobs:\n"; printf "  - %s\n" "${failed[@]}"; exit 1
           fi
-          echo "All CI jobs passed"
+          echo "All CI + security jobs passed"

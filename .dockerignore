@@ -1,0 +1,30 @@
+# Git
+.git/
+.gitignore
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Secrets / runtime data (NEVER in image)
+.env
+data/
+logs/
+
+# Dev / CI
+tests/
+.github/
+*.md
+
+# IDE
+.vscode/
+.idea/

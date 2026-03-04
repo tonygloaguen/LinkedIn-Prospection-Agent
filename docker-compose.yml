@@ -1,0 +1,88 @@
+name: linkedin-agent
+
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Force ARM64 for Raspberry Pi 4
+      platforms:
+        - linux/arm64
+    image: linkedin-agent:latest
+    container_name: linkedin-agent
+
+    # ── Volumes ────────────────────────────────────────────────────────────
+    volumes:
+      - agent-data:/data          # SQLite DB + session cookies
+      - agent-logs:/logs          # Structured logs + debug screenshots
+      - ./.env:/app/.env:ro       # LinkedIn credentials (read-only)
+
+    # ── Environment ────────────────────────────────────────────────────────
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /data/linkedin.db
+      SESSION_PATH: /data/session.json
+      LOG_FILE: /logs/agent.log
+      LOG_LEVEL: INFO
+
+    # ── Resources (RPi 4 4GB — leave headroom for FacturX container) ───────
+    deploy:
+      resources:
+        limits:
+          memory: 1500M    # Chromium + Python ≈ 800MB–1.2GB peak
+          cpus: "2.0"      # 2 of 4 ARM Cortex-A72 cores
+        reservations:
+          memory: 512M
+
+    # ── Security ────────────────────────────────────────────────────────────
+    security_opt:
+      - no-new-privileges:true
+    # Required for Chromium (sandbox disabled in launch args already)
+    cap_drop:
+      - ALL
+
+    # ── Restart ─────────────────────────────────────────────────────────────
+    restart: "no"          # One-shot job — do not restart automatically
+
+    # ── Default command (overridden by docker compose run or cron) ──────────
+    command: ["run"]
+
+  # ── Dashboard (optional — read-only stats viewer) ────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: linkedin-agent:latest
+    container_name: linkedin-dashboard
+    volumes:
+      - agent-data:/data:ro
+      - ./.env:/app/.env:ro
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /data/linkedin.db
+    command: ["-c", "python dashboard.py show"]
+    entrypoint: ["sh"]
+    profiles:
+      - dashboard          # Only started with: docker compose --profile dashboard up
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+volumes:
+  agent-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/linkedin-agent/data
+
+  agent-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/linkedin-agent/logs
