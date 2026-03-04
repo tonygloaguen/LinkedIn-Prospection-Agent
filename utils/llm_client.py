@@ -112,7 +112,7 @@ async def call_llm(prompt: str) -> str:
         LLMUnavailableError: If Gemini fails after all retries.
     """
     try:
-        return await _call_gemini_with_retry(prompt)
+        return str(await _call_gemini_with_retry(prompt))
     except _GeminiRateLimitError:
         logger.warning("gemini_rate_limit_sleeping", seconds=60)
         await asyncio.sleep(60)
