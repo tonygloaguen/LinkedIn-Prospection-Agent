@@ -45,8 +45,8 @@ def _get_gemini_client() -> object:
         raise LLMUnavailableError("GEMINI_API_KEY environment variable is not set")
 
     model_name = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel(model_name)
+    genai.configure(api_key=api_key)  # type: ignore[attr-defined]
+    return genai.GenerativeModel(model_name)  # type: ignore[attr-defined]
 
 
 async def _call_gemini_once(prompt: str) -> str:

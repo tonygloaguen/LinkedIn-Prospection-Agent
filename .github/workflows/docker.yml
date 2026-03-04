@@ -81,8 +81,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          provenance: true   # SLSA provenance attestation
-          sbom: true         # Software Bill of Materials
+          # provenance/sbom create manifest lists incompatible with --load (PR builds)
+          provenance: ${{ github.event_name != 'pull_request' }}
+          sbom: ${{ github.event_name != 'pull_request' }}
 
       - name: Image summary
         run: |
