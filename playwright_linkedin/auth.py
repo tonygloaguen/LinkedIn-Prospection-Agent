@@ -83,9 +83,7 @@ async def login(context: BrowserContext) -> Page:
         await page.wait_for_url("**/feed/**", timeout=_TIMEOUT)
 
         if "feed" not in page.url:
-            raise LinkedInAuthError(
-                f"Login redirect did not reach feed, ended at: {page.url}"
-            )
+            raise LinkedInAuthError(f"Login redirect did not reach feed, ended at: {page.url}")
 
         logger.info("linkedin_login_success")
         return page

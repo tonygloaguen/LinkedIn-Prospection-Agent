@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from typing_extensions import TypedDict
 
 from models.post import Post
@@ -29,7 +27,7 @@ class RunMetrics(TypedDict):
     invitations_sent: int
     errors_count: int
     start_time: str
-    end_time: Optional[str]
+    end_time: str | None
 
 
 class LinkedInProspectionState(TypedDict):

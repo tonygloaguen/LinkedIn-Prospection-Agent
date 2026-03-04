@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-from agent.state import LinkedInProspectionState, RunMetrics
+from agent.state import LinkedInProspectionState
 from utils.metrics import create_run_metrics, finalize_metrics
 
 

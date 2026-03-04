@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -79,17 +79,20 @@ def _parse_score_response(response: str, profile: Profile) -> ScoredProfile:
         + _SCORE_WEIGHTS["activity"] * score_activity
     )
 
-    return ScoredProfile(
-        **profile.model_dump(),
-        score_recruiter=score_recruiter,
-        score_technical=score_technical,
-        score_activity=score_activity,
-        score_total=round(score_total, 4),
-        profile_category=category,
-        is_recruiter=(category == "recruiter"),
-        is_technical=(category in ("technical", "cto_ciso")),
-        reasoning=reasoning,
+    profile_dict = profile.model_dump()
+    profile_dict.update(
+        {
+            "score_recruiter": score_recruiter,
+            "score_technical": score_technical,
+            "score_activity": score_activity,
+            "score_total": round(score_total, 4),
+            "profile_category": category,
+            "is_recruiter": (category == "recruiter"),
+            "is_technical": (category in ("technical", "cto_ciso")),
+            "reasoning": reasoning,
+        }
     )
+    return ScoredProfile(**profile_dict)
 
 
 async def score_profile(
@@ -135,7 +138,7 @@ async def score_profile(
             await log_action(
                 db,  # type: ignore[arg-type]
                 ActionLog(
-                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    timestamp=datetime.now(UTC).isoformat(),
                     action_type="score",
                     profile_id=profile.id,
                     payload={
@@ -170,7 +173,7 @@ async def score_profile(
             await log_action(
                 db,  # type: ignore[arg-type]
                 ActionLog(
-                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    timestamp=datetime.now(UTC).isoformat(),
                     action_type="error",
                     profile_id=profile.id,
                     payload={"reason": "llm_unavailable"},

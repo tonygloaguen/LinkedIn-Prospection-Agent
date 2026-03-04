@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import structlog
 
@@ -35,7 +34,7 @@ async def follow_up_scheduler(
     Returns:
         State unchanged (follow-up candidates logged only).
     """
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=_FOLLOW_UP_DAYS)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(days=_FOLLOW_UP_DAYS)).isoformat()
 
     try:
         candidates = await _get_follow_up_candidates(db, cutoff)  # type: ignore[arg-type]
@@ -56,9 +55,7 @@ async def follow_up_scheduler(
     return state
 
 
-async def _get_follow_up_candidates(
-    db: object, cutoff_date: str
-) -> list[dict[str, Optional[str]]]:
+async def _get_follow_up_candidates(db: object, cutoff_date: str) -> list[dict[str, str | None]]:
     """Query profiles messaged before cutoff_date with no response.
 
     Args:

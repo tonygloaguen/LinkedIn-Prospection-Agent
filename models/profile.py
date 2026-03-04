@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field
-
 
 ProfileCategory = Literal["recruiter", "technical", "cto_ciso", "other"]
 ProfileStatus = Literal["pending", "messaged", "connected", "ignored"]
@@ -35,11 +34,11 @@ class Profile(BaseModel):
     """
 
     linkedin_url: str
-    full_name: Optional[str] = None
-    headline: Optional[str] = None
-    bio: Optional[str] = None
-    location: Optional[str] = None
-    connections_count: Optional[int] = None
+    full_name: str | None = None
+    headline: str | None = None
+    bio: str | None = None
+    location: str | None = None
+    connections_count: int | None = None
     is_recruiter: bool = False
     is_technical: bool = False
     score_recruiter: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -47,8 +46,8 @@ class Profile(BaseModel):
     score_activity: float = Field(default=0.0, ge=0.0, le=1.0)
     score_total: float = Field(default=0.0, ge=0.0, le=1.0)
     profile_category: ProfileCategory = "other"
-    scraped_at: Optional[str] = None
-    last_action: Optional[str] = None
+    scraped_at: str | None = None
+    last_action: str | None = None
     status: ProfileStatus = "pending"
 
     @computed_field  # type: ignore[prop-decorator]
@@ -65,4 +64,4 @@ class ScoredProfile(Profile):
     with values returned by the LLM scoring node.
     """
 
-    reasoning: Optional[str] = None
+    reasoning: str | None = None

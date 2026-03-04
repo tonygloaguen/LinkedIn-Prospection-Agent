@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 import aiosqlite
 import structlog
@@ -104,7 +104,7 @@ async def upsert_scored_profile(db: aiosqlite.Connection, profile: ScoredProfile
 
 
 async def update_profile_status(
-    db: aiosqlite.Connection, profile_id: str, status: str, last_action: Optional[str] = None
+    db: aiosqlite.Connection, profile_id: str, status: str, last_action: str | None = None
 ) -> None:
     """Update the status and optionally the last_action of a profile.
 
@@ -114,7 +114,7 @@ async def update_profile_status(
         status: New status value (pending|messaged|connected|ignored).
         last_action: Optional ISO timestamp of the last action.
     """
-    ts = last_action or datetime.now(timezone.utc).isoformat()
+    ts = last_action or datetime.now(UTC).isoformat()
     await db.execute(
         "UPDATE profiles SET status = ?, last_action = ? WHERE id = ?",
         (status, ts, profile_id),
@@ -122,9 +122,7 @@ async def update_profile_status(
     await db.commit()
 
 
-async def get_profile_by_id(
-    db: aiosqlite.Connection, profile_id: str
-) -> Optional[dict[str, Any]]:
+async def get_profile_by_id(db: aiosqlite.Connection, profile_id: str) -> dict[str, Any] | None:
     """Fetch a profile record by its identifier.
 
     Args:
@@ -199,7 +197,7 @@ async def count_today_invitations(db: aiosqlite.Connection) -> int:
     Returns:
         Number of successful connect actions logged today.
     """
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = datetime.now(UTC).date().isoformat()
     async with db.execute(
         """
         SELECT COUNT(*) FROM action_logs
@@ -222,7 +220,7 @@ async def count_today_actions(db: aiosqlite.Connection) -> int:
     Returns:
         Total count of action_logs entries for today.
     """
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = datetime.now(UTC).date().isoformat()
     async with db.execute(
         "SELECT COUNT(*) FROM action_logs WHERE timestamp LIKE ?",
         (f"{today}%",),
@@ -274,9 +272,7 @@ async def get_stats(db: aiosqlite.Connection) -> dict[str, Any]:
     ) as c:
         stats["by_category"] = {row[0]: row[1] async for row in c}
 
-    async with db.execute(
-        "SELECT status, COUNT(*) FROM profiles GROUP BY status"
-    ) as c:
+    async with db.execute("SELECT status, COUNT(*) FROM profiles GROUP BY status") as c:
         stats["by_status"] = {row[0]: row[1] async for row in c}
 
     async with db.execute(

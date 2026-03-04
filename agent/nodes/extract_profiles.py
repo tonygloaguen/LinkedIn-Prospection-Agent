@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -53,7 +53,7 @@ async def extract_profiles(
         if post.author_linkedin_url not in seen_urls:
             profile = Profile(
                 linkedin_url=post.author_linkedin_url,
-                scraped_at=datetime.now(timezone.utc).isoformat(),
+                scraped_at=datetime.now(UTC).isoformat(),
             )
             existing_profiles.append(profile)
             seen_urls.add(post.author_linkedin_url)
@@ -71,7 +71,7 @@ async def extract_profiles(
                 if url not in seen_urls:
                     profile = Profile(
                         linkedin_url=url,
-                        scraped_at=datetime.now(timezone.utc).isoformat(),
+                        scraped_at=datetime.now(UTC).isoformat(),
                     )
                     existing_profiles.append(profile)
                     seen_urls.add(url)
@@ -79,7 +79,7 @@ async def extract_profiles(
             await log_action(
                 db,  # type: ignore[arg-type]
                 ActionLog(
-                    timestamp=datetime.now(timezone.utc).isoformat(),
+                    timestamp=datetime.now(UTC).isoformat(),
                     action_type="scrape",
                     post_id=post.id,
                     payload={"commenters_found": len(commenter_urls)},

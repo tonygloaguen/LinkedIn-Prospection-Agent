@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
-from typing import Any
 
 import structlog
 from langgraph.graph import END, StateGraph
@@ -91,10 +89,6 @@ async def run_pipeline(
     """
     import aiosqlite
 
-    from playwright_linkedin.auth import login
-    from playwright_linkedin.browser import BrowserManager
-    from storage.database import init_db
-
     from agent.nodes.enrich_profile import enrich_profile
     from agent.nodes.extract_profiles import extract_profiles
     from agent.nodes.follow_up_scheduler import follow_up_scheduler
@@ -103,6 +97,9 @@ async def run_pipeline(
     from agent.nodes.score_profile import score_profile
     from agent.nodes.search_posts import search_posts
     from agent.nodes.send_connection import send_connection
+    from playwright_linkedin.auth import login
+    from playwright_linkedin.browser import BrowserManager
+    from storage.database import init_db
 
     db_path = os.environ.get("DB_PATH", "./data/linkedin.db")
 
@@ -159,6 +156,7 @@ async def run_pipeline(
                     # Still run log_action to persist metrics
                     try:
                         from agent.nodes.log_action import log_action as _log
+
                         state = await _log(state, db)
                     except Exception:
                         pass
