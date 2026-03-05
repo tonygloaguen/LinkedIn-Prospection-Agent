@@ -219,16 +219,22 @@ jobs:
     steps:
       - name: Check all Docker jobs passed
         run: |
-          declare -A results=(
-            [build]="${{ needs.build.result }}"
+          # build must always succeed
+          if [[ "${{ needs.build.result }}" != "success" ]]; then
+            echo "Build failed: ${{ needs.build.result }}"
+            exit 1
+          fi
+          # trivy jobs: fail on "failure", tolerate "cancelled" (runner unavailability)
+          declare -A trivy_results=(
             [trivy-image]="${{ needs.trivy-image.result }}"
             [trivy-dockerfile]="${{ needs.trivy-dockerfile.result }}"
           )
           failed=()
-          for job in "${!results[@]}"; do
-            [[ "${results[$job]}" != "success" ]] && failed+=("$job (${results[$job]})")
+          for job in "${!trivy_results[@]}"; do
+            result="${trivy_results[$job]}"
+            [[ "$result" == "failure" ]] && failed+=("$job ($result)")
           done
           if (( ${#failed[@]} > 0 )); then
             printf "Failed jobs:\n"; printf "  - %s\n" "${failed[@]}"; exit 1
           fi
-          echo "Docker build + security scans passed"
+          echo "Docker build passed (trivy-image=${{ needs.trivy-image.result }}, trivy-dockerfile=${{ needs.trivy-dockerfile.result }})"
