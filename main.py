@@ -161,7 +161,7 @@ def run(
     typer.echo(f"Errors:             {metrics.get('errors_count', 0)}")
 
 
-@app.command()
+@app.command(name="dry-run")
 def dry_run_cmd(
     keywords: Annotated[
         list[str] | None,
@@ -236,9 +236,6 @@ def stats() -> None:
 
     asyncio.run(_show_stats())
 
-
-# Alias for the dry-run command
-app.command(name="dry-run")(dry_run_cmd)
 
 
 if __name__ == "__main__":
