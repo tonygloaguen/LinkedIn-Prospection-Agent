@@ -2,13 +2,7 @@ name: linkedin-agent
 
 services:
   agent:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      # Force ARM64 for Raspberry Pi 4
-      platforms:
-        - linux/arm64
-    image: linkedin-agent:latest
+    image: ghcr.io/tonygloaguen/linkedin-prospection-agent:main
     container_name: linkedin-agent
 
     # ── Volumes ────────────────────────────────────────────────────────────
@@ -50,10 +44,7 @@ services:
 
   # ── Dashboard (optional — read-only stats viewer) ────────────────────────
   dashboard:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: linkedin-agent:latest
+    image: ghcr.io/tonygloaguen/linkedin-prospection-agent:main
     container_name: linkedin-dashboard
     volumes:
       - agent-data:/data:ro
