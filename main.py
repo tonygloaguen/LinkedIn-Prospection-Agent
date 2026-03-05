@@ -237,6 +237,5 @@ def stats() -> None:
     asyncio.run(_show_stats())
 
 
-
 if __name__ == "__main__":
     app()
