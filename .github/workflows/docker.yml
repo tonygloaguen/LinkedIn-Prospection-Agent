@@ -7,6 +7,7 @@ on:
       - "v*.*.*"
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -152,7 +153,7 @@ jobs:
 
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('trivy-results.sarif') != ''
         with:
           sarif_file: trivy-results.sarif
           category: trivy-docker
@@ -169,7 +170,7 @@ jobs:
 
       - name: Upload Trivy JSON report
         uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && hashFiles('trivy-report.json') != ''
         with:
           name: trivy-image-report
           path: trivy-report.json
@@ -196,7 +197,7 @@ jobs:
 
       - name: Upload config SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('trivy-config.sarif') != ''
         with:
           sarif_file: trivy-config.sarif
           category: trivy-config
