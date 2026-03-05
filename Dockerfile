@@ -88,7 +88,7 @@ RUN playwright install chromium --with-deps 2>/dev/null || \
 RUN mkdir -p /data /logs/screenshots
 
 # Non-root user for security
-RUN useradd -r -u 1001 -g root agent && \
+RUN useradd -u 1001 -g root -s /sbin/nologin -M agent && \
     chown -R agent:root /app /data /logs /ms-playwright 2>/dev/null || true
 USER agent
 
