@@ -18,24 +18,21 @@ app = typer.Typer(
 )
 
 DEFAULT_KEYWORDS = [
-    # IA / LLM
-    "LangGraph agent",
-    "LLM infrastructure",
-    "AI agents Python",
-    "RAG production",
-    "LLMOps",
-    "prompt engineering",
-    # DevSecOps / Cyber
-    "DevSecOps NIS2",
-    "blue team SOC",
-    "supply chain security",
-    "infrastructure as code security",
-    "SIEM Wazuh",
-    # Infra / Observability
-    "Prometheus Grafana on-prem",
-    "platform engineering SRE",
-    "open source infrastructure",
-    "Docker Kubernetes sécurité",
+    "DevOps",
+    "DevSecOps",
+    "Cybersecurity",
+    "Terraform",
+    "Python automation",
+    "Observability",
+    "SRE",
+    "Platform Engineering",
+    "Cloud Security",
+    "LLM",
+    "AI agents",
+    "RAG",
+    "Prometheus",
+    "Grafana",
+    "Docker",
 ]
 
 
