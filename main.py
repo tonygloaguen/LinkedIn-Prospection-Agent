@@ -26,7 +26,6 @@ DEFAULT_KEYWORDS = [
     "Cloud Engineer",
     "ingénieur DevOps",
     "ingénieur cloud",
-
     # Infrastructure / automatisation
     "Infrastructure as Code",
     "Terraform",
@@ -34,13 +33,11 @@ DEFAULT_KEYWORDS = [
     "Docker",
     "automatisation infrastructure",
     "automatisation Python",
-
     # Observabilité / monitoring
     "Observability",
     "observabilité",
     "Prometheus",
     "Grafana",
-
     # Sécurité / conformité
     "Cybersecurity",
     "cybersécurité",
@@ -48,7 +45,6 @@ DEFAULT_KEYWORDS = [
     "sécurité cloud",
     "NIS2",
 ]
-
 
 def _setup_logging(log_level: str = "INFO", log_file: str | None = None) -> None:
     """Configure structlog for JSON-structured logging.
