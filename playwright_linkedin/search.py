@@ -49,6 +49,7 @@ async def _extract_post_author_url(post_element: object) -> str | None:
             el = await post_element.query_selector(sel)  # type: ignore[attr-defined]
             if el:
                 href = await el.get_attribute("href")
+
                 if href and "/in/" in href:
                     return _normalize_linkedin_url(href)
 
@@ -68,8 +69,10 @@ async def _extract_post_url(post_element: object) -> str | None:
 
         for sel in selectors:
             el = await post_element.query_selector(sel)  # type: ignore[attr-defined]
+
             if el:
                 href = await el.get_attribute("href")
+
                 if href:
                     return _normalize_linkedin_url(href)
 
@@ -89,8 +92,10 @@ async def _extract_post_snippet(post_element: object) -> str | None:
 
         for sel in selectors:
             el = await post_element.query_selector(sel)  # type: ignore[attr-defined]
+
             if el:
                 text = await el.inner_text()
+
                 if text:
                     return text[:300].strip()
 
@@ -179,7 +184,6 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
     now = datetime.now(UTC).isoformat()
 
     for element in post_elements[:_MAX_POSTS_PER_KEYWORD]:
-
         try:
             author_url = await _extract_post_author_url(element)
             post_url = await _extract_post_url(element)
