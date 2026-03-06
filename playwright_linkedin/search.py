@@ -114,6 +114,18 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
         final_url=page.url,
         title=await page.title(),
     )
+
+    final_url = page.url.lower()
+    page_title = (await page.title()).lower()
+    
+    if "/uas/login" in final_url or "/login" in final_url:
+        logger.error(
+            "linkedin_auth_invalid",
+            keyword=keyword,
+            final_url=page.url,
+            title=await page.title(),
+        )
+        raise PostSearchError("LinkedIn session is invalid; redirected to login page.")
     
     candidate_selectors = [
         "div.feed-shared-update-v2",
