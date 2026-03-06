@@ -15,11 +15,12 @@ logger = structlog.get_logger(__name__)
 _LOGIN_URL = "https://www.linkedin.com/login"
 _FEED_URL = "https://www.linkedin.com/feed/"
 _TIMEOUT = 60_000
+_TEST_SEARCH_URL = "https://www.linkedin.com/search/results/content/?keywords=DevOps&sortBy=date"
 
 
 async def is_logged_in(page: Page) -> bool:
     """Check whether the current browser session is authenticated."""
-    await page.goto(_FEED_URL, timeout=_TIMEOUT, wait_until="domcontentloaded")
+    await page.goto(_TEST_SEARCH_URL, timeout=_TIMEOUT, wait_until="domcontentloaded")
     await page.wait_for_timeout(2000)
 
     url = page.url.lower()
@@ -31,7 +32,7 @@ async def is_logged_in(page: Page) -> bool:
     if "s’identifier" in title or "sign in" in title:
         return False
 
-    return "/feed" in url
+    return "/search/results/content" in url
 
 
 @retry(
