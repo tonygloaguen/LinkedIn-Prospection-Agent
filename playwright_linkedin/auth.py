@@ -18,16 +18,20 @@ _TIMEOUT = 60_000
 
 
 async def is_logged_in(page: Page) -> bool:
-    """Check whether the current browser session is authenticated.
-
-    Args:
-        page: Active Playwright Page.
-
-    Returns:
-        True if the LinkedIn feed is accessible without redirect.
-    """
+    """Check whether the current browser session is authenticated."""
     await page.goto(_FEED_URL, timeout=_TIMEOUT, wait_until="domcontentloaded")
-    return "feed" in page.url
+    await page.wait_for_timeout(2000)
+
+    url = page.url.lower()
+    title = (await page.title()).lower()
+
+    if "/uas/login" in url or "/login" in url:
+        return False
+
+    if "s’identifier" in title or "sign in" in title:
+        return False
+
+    return "/feed" in url
 
 
 @retry(
