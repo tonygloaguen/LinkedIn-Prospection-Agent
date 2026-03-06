@@ -14,6 +14,7 @@ app = typer.Typer(
     name="linkedin-agent",
     help="LinkedIn Prospection Agent — orchestrated by LangGraph",
     add_completion=False,
+    rich_markup_mode=None,
 )
 
 DEFAULT_KEYWORDS = [
@@ -113,7 +114,11 @@ def run(
     ] = 40,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run/--no-dry-run", help="Dry run — no real invitations sent"),
+        typer.Option(
+            "--dry-run",
+            help="Dry run — no real invitations sent",
+            is_flag=True,
+        ),
     ] = False,
 ) -> None:
     """Run the full LinkedIn prospection pipeline.
