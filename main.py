@@ -18,21 +18,35 @@ app = typer.Typer(
 )
 
 DEFAULT_KEYWORDS = [
+    # Métiers / discussions carrière
     "DevOps",
     "DevSecOps",
-    "Cybersecurity",
-    "Terraform",
-    "Python automation",
-    "Observability",
-    "SRE",
     "Platform Engineering",
-    "Cloud Security",
-    "LLM",
-    "AI agents",
-    "RAG",
+    "SRE",
+    "Cloud Engineer",
+    "ingénieur DevOps",
+    "ingénieur cloud",
+
+    # Infrastructure / automatisation
+    "Infrastructure as Code",
+    "Terraform",
+    "Kubernetes",
+    "Docker",
+    "automatisation infrastructure",
+    "automatisation Python",
+
+    # Observabilité / monitoring
+    "Observability",
+    "observabilité",
     "Prometheus",
     "Grafana",
-    "Docker",
+
+    # Sécurité / conformité
+    "Cybersecurity",
+    "cybersécurité",
+    "Cloud Security",
+    "sécurité cloud",
+    "NIS2",
 ]
 
 
