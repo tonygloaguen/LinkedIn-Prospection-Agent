@@ -43,7 +43,7 @@ DEFAULT_KEYWORDS = [
     "cybersécurité",
     "Cloud Security",
     "sécurité cloud",
-    "NIS2",
+    "NIS2"
 ]
 
 def _setup_logging(log_level: str = "INFO", log_file: str | None = None) -> None:
