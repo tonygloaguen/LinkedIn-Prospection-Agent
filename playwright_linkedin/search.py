@@ -111,6 +111,8 @@ async def _extract_post_snippet(post_element: object) -> str | None:
     wait=wait_exponential(multiplier=2, min=5, max=30),
     reraise=True,
 )
+
+
 async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
     url = _build_search_url(keyword)
 
@@ -134,7 +136,7 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
         final_url=page.url,
         title=await page.title(),
     )
-
+    
     candidate_selectors = [
         "div.feed-shared-update-v2",
         "div.occludable-update",
