@@ -9,6 +9,10 @@ from typing import Annotated
 
 import structlog
 import typer
+from rich.traceback import install as _install_rich_tb
+
+# Never show local variables in tracebacks — prevents credential leaks in logs
+_install_rich_tb(show_locals=False)
 
 app = typer.Typer(
     name="linkedin-agent",

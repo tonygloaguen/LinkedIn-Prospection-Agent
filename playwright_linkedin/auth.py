@@ -77,7 +77,46 @@ async def login(context: BrowserContext) -> Page:
     logger.info("linkedin_login_start")
 
     try:
-        await page.goto(_LOGIN_URL, timeout=_TIMEOUT, wait_until="domcontentloaded")
+        await page.goto(_LOGIN_URL, timeout=_TIMEOUT, wait_until="load")
+        await page.wait_for_timeout(2000)
+
+        # Dismiss GDPR / cookie consent banner if present (LinkedIn EU)
+        consent_selectors = [
+            "button[data-tracking-control-name='ga-cookie.consent.accept.v3']",
+            "button[action-type='ACCEPT']",
+            "button.artdeco-button--primary[data-test-id='accept-btn']",
+        ]
+        for selector in consent_selectors:
+            try:
+                btn = page.locator(selector).first
+                if await btn.is_visible(timeout=3000):
+                    await btn.click(timeout=5000)
+                    logger.info("linkedin_cookie_consent_dismissed", selector=selector)
+                    await page.wait_for_timeout(1500)
+                    break
+            except Exception:
+                pass
+
+        # Verify the login form is present
+        try:
+            await page.wait_for_selector("#username", timeout=15_000)
+        except Exception:
+            current_url = page.url
+            title = await page.title()
+            screenshot_path = "/logs/screenshots/login_debug.png"
+            try:
+                await page.screenshot(path=screenshot_path, full_page=True)
+                logger.warning(
+                    "login_form_not_found",
+                    url=current_url,
+                    title=title,
+                    screenshot=screenshot_path,
+                )
+            except Exception:
+                logger.warning("login_form_not_found", url=current_url, title=title)
+            raise LinkedInAuthError(
+                f"Login form (#username) not found — page: {title!r} at {current_url}"
+            )
 
         # Fill credentials
         await page.fill("#username", email, timeout=_TIMEOUT)
