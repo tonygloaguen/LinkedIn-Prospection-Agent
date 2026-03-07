@@ -7,7 +7,7 @@ import urllib.parse
 from datetime import UTC, datetime
 
 import structlog
-from playwright.async_api import Page
+from playwright.async_api import ElementHandle, Page
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from agent.exceptions import PostSearchError
@@ -18,8 +18,7 @@ logger = structlog.get_logger(__name__)
 
 # LinkedIn encodes sortBy with quotes: sortBy=%22date%22
 _BASE_SEARCH_URL = (
-    "https://www.linkedin.com/search/results/content/"
-    "?keywords={keywords}&sortBy=%22date%22"
+    "https://www.linkedin.com/search/results/content/?keywords={keywords}&sortBy=%22date%22"
 )
 _TIMEOUT = 60_000
 _MAX_POSTS_PER_KEYWORD = 10
@@ -51,25 +50,25 @@ _RESULTS_READY_SELECTOR = (
 
 # Post URL link selectors (inside a post card)
 _POST_URL_SELECTORS: list[str] = [
-    "a[href*='/feed/update/']",       # Modern format: /feed/update/urn:li:activity:…
-    "a[href*='/posts/']",              # Alternative: /posts/name_activity-…
-    "a[href*='/activity/']",           # Old format
+    "a[href*='/feed/update/']",  # Modern format: /feed/update/urn:li:activity:…
+    "a[href*='/posts/']",  # Alternative: /posts/name_activity-…
+    "a[href*='/activity/']",  # Old format
     "a[data-control-name='feed_detail_shares']",
 ]
 
 # Author profile URL selectors (inside a post card)
 _AUTHOR_URL_SELECTORS: list[str] = [
-    ".update-components-actor__meta-link",          # 2023+ primary
+    ".update-components-actor__meta-link",  # 2023+ primary
     "a.update-components-actor__name[href*='/in/']",
     ".update-components-actor__name a[href*='/in/']",
-    "a.app-aware-link[href*='/in/']",               # broad fallback
+    "a.app-aware-link[href*='/in/']",  # broad fallback
     "a[data-control-name='actor']",
     ".update-components-actor__meta a[href*='/in/']",
 ]
 
 # Post text content selectors (inside a post card)
 _SNIPPET_SELECTORS: list[str] = [
-    ".update-components-text span[dir='ltr']",      # 2024+ primary
+    ".update-components-text span[dir='ltr']",  # 2024+ primary
     ".update-components-text",
     ".feed-shared-update-v2__description",
     ".feed-shared-text span",
@@ -98,7 +97,7 @@ def _clean_snippet(text: str, max_len: int = 500) -> str:
     return text
 
 
-async def _extract_post_author_url(post_element: object) -> str | None:
+async def _extract_post_author_url(post_element: ElementHandle) -> str | None:
     """Extract the author profile URL from a post card element.
 
     Args:
@@ -109,7 +108,7 @@ async def _extract_post_author_url(post_element: object) -> str | None:
     """
     try:
         for sel in _AUTHOR_URL_SELECTORS:
-            el = await post_element.query_selector(sel)  # type: ignore[attr-defined]
+            el = await post_element.query_selector(sel)
             if el:
                 href = await el.get_attribute("href")
                 if href and "/in/" in href:
@@ -120,7 +119,7 @@ async def _extract_post_author_url(post_element: object) -> str | None:
     return None
 
 
-async def _extract_post_url(post_element: object) -> str | None:
+async def _extract_post_url(post_element: ElementHandle) -> str | None:
     """Extract the canonical URL of a post card.
 
     Args:
@@ -131,7 +130,7 @@ async def _extract_post_url(post_element: object) -> str | None:
     """
     try:
         for sel in _POST_URL_SELECTORS:
-            el = await post_element.query_selector(sel)  # type: ignore[attr-defined]
+            el = await post_element.query_selector(sel)
             if el:
                 href = await el.get_attribute("href")
                 if href:
@@ -141,7 +140,7 @@ async def _extract_post_url(post_element: object) -> str | None:
     return None
 
 
-async def _extract_post_snippet(post_element: object) -> str | None:
+async def _extract_post_snippet(post_element: ElementHandle) -> str | None:
     """Extract and clean text content from a post card.
 
     Args:
@@ -152,7 +151,7 @@ async def _extract_post_snippet(post_element: object) -> str | None:
     """
     try:
         for sel in _SNIPPET_SELECTORS:
-            el = await post_element.query_selector(sel)  # type: ignore[attr-defined]
+            el = await post_element.query_selector(sel)
             if el:
                 text = await el.inner_text()
                 if text and text.strip():
@@ -162,7 +161,7 @@ async def _extract_post_snippet(post_element: object) -> str | None:
     return None
 
 
-async def _find_post_elements(page: Page, keyword: str) -> tuple[list[object], str]:
+async def _find_post_elements(page: Page, keyword: str) -> tuple[list[ElementHandle], str]:
     """Try each container selector and return the first non-empty result set.
 
     Args:

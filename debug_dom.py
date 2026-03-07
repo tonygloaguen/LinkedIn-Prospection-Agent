@@ -21,10 +21,7 @@ from pathlib import Path
 
 from playwright.async_api import async_playwright
 
-SEARCH_URL = (
-    "https://www.linkedin.com/search/results/content/"
-    "?keywords=DevOps&sortBy=%22date%22"
-)
+SEARCH_URL = "https://www.linkedin.com/search/results/content/?keywords=DevOps&sortBy=%22date%22"
 
 # Ordered candidate selectors — from most specific to broadest fallback
 CANDIDATE_SELECTORS: list[tuple[str, str]] = [
@@ -231,7 +228,7 @@ async def main() -> None:
         await browser.close()
 
     print("\nDone. Open debug_output.html in a browser to inspect the full DOM.")
-    print("Search for: data-urn, data-chameleon, class=\"update-components")
+    print('Search for: data-urn, data-chameleon, class="update-components')
 
 
 if __name__ == "__main__":
