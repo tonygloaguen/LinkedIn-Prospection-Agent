@@ -88,7 +88,6 @@ async def get_browser_context(playwright: Playwright) -> tuple[Browser, BrowserC
             "--disable-dev-shm-usage",
             "--disable-gpu",
             "--disable-extensions",
-            "--single-process",
             "--disable-blink-features=AutomationControlled",
             "--disable-infobars",
         ],
@@ -150,10 +149,19 @@ class BrowserManager:
     async def __aexit__(self, *args: object) -> None:
         """Save cookies and close browser resources."""
         if self._context:
-            await _save_cookies(self._context)
-            await self._context.close()
+            try:
+                await _save_cookies(self._context)
+            except Exception as exc:
+                logger.warning("cookies_save_failed", error=str(exc))
+            try:
+                await self._context.close()
+            except Exception as exc:
+                logger.warning("context_close_failed", error=str(exc))
         if self._browser:
-            await self._browser.close()
+            try:
+                await self._browser.close()
+            except Exception as exc:
+                logger.warning("browser_close_failed", error=str(exc))
         if self._playwright:
             await self._playwright.stop()
         logger.info("browser_closed")
