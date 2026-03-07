@@ -14,27 +14,36 @@ app = typer.Typer(
     name="linkedin-agent",
     help="LinkedIn Prospection Agent — orchestrated by LangGraph",
     add_completion=False,
+    rich_markup_mode=None,
 )
 
 DEFAULT_KEYWORDS = [
-    # IA / LLM
-    "LangGraph agent",
-    "LLM infrastructure",
-    "AI agents Python",
-    "RAG production",
-    "LLMOps",
-    "prompt engineering",
-    # DevSecOps / Cyber
-    "DevSecOps NIS2",
-    "blue team SOC",
-    "supply chain security",
-    "infrastructure as code security",
-    "SIEM Wazuh",
-    # Infra / Observability
-    "Prometheus Grafana on-prem",
-    "platform engineering SRE",
-    "open source infrastructure",
-    "Docker Kubernetes sécurité",
+    # Métiers / discussions carrière
+    "DevOps",
+    "DevSecOps",
+    "Platform Engineering",
+    "SRE",
+    "Cloud Engineer",
+    "ingénieur DevOps",
+    "ingénieur cloud",
+    # Infrastructure / automatisation
+    "Infrastructure as Code",
+    "Terraform",
+    "Kubernetes",
+    "Docker",
+    "automatisation infrastructure",
+    "automatisation Python",
+    # Observabilité / monitoring
+    "Observability",
+    "observabilité",
+    "Prometheus",
+    "Grafana",
+    # Sécurité / conformité
+    "Cybersecurity",
+    "cybersécurité",
+    "Cloud Security",
+    "sécurité cloud",
+    "NIS2",
 ]
 
 
@@ -113,7 +122,11 @@ def run(
     ] = 40,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run/--no-dry-run", help="Dry run — no real invitations sent"),
+        typer.Option(
+            "--dry-run",
+            help="Dry run — no real invitations sent",
+            is_flag=True,
+        ),
     ] = False,
 ) -> None:
     """Run the full LinkedIn prospection pipeline.

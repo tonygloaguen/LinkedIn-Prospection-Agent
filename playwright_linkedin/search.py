@@ -1,4 +1,4 @@
-"""LinkedIn post and people search via Playwright."""
+"""LinkedIn post search via Playwright."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ logger = structlog.get_logger(__name__)
 _BASE_SEARCH_URL = (
     "https://www.linkedin.com/search/results/content/?keywords={keywords}&sortBy=%22date%22"
 )
+
 _TIMEOUT = 60_000
 _MAX_POSTS_PER_KEYWORD = 10
 
@@ -226,7 +227,9 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
             title=title,
         )
     except Exception as exc:
-        raise PostSearchError(f"Failed to load search page for '{keyword}': {exc}") from exc
+        raise PostSearchError(
+            f"Failed to load search page for '{keyword}': {exc}"
+        ) from exc
 
     # ── 2. Wait for results to render ──────────────────────────────────────────
     try:
@@ -248,6 +251,7 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
     # ── 4. Find post elements ──────────────────────────────────────────────────
     posts: list[Post] = []
     seen_urls: set[str] = set()
+    now = datetime.now(UTC).isoformat()
 
     post_elements, active_selector = await _find_post_elements(page, keyword)
 
