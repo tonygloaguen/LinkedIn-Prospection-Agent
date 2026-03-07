@@ -176,6 +176,21 @@ async def _analyse_dom(page: object) -> None:
 
 
 async def main() -> None:
+    # Load .env if present (same logic as main.py _load_env)
+    env_path = Path(".env")
+    if env_path.exists():
+        try:
+            from dotenv import load_dotenv  # type: ignore[import]
+
+            load_dotenv(env_path)
+        except ImportError:
+            for line in env_path.read_text().splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, value = line.partition("=")
+                    if key.strip() not in os.environ:
+                        os.environ[key.strip()] = value.strip()
+
     email = os.environ.get("LINKEDIN_EMAIL", "")
     password = os.environ.get("LINKEDIN_PASSWORD", "")
 
