@@ -227,9 +227,7 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
             title=title,
         )
     except Exception as exc:
-        raise PostSearchError(
-            f"Failed to load search page for '{keyword}': {exc}"
-        ) from exc
+        raise PostSearchError(f"Failed to load search page for '{keyword}': {exc}") from exc
 
     # ── 2. Wait for results to render ──────────────────────────────────────────
     try:
