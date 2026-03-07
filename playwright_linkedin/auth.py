@@ -84,14 +84,34 @@ async def login(context: BrowserContext) -> Page:
         await page.fill("#password", password, timeout=_TIMEOUT)
         await page.click("button[type='submit']", timeout=_TIMEOUT)
 
-        # Wait for redirect to feed or checkpoint
-        await page.wait_for_url("**/feed/**", timeout=_TIMEOUT)
+        # Wait for any navigation after submit (feed, checkpoint, or error)
+        await page.wait_for_load_state("domcontentloaded", timeout=_TIMEOUT)
+        await page.wait_for_timeout(2000)
 
-        if "feed" not in page.url:
-            raise LinkedInAuthError(f"Login redirect did not reach feed, ended at: {page.url}")
+        current_url = page.url
+        logger.info("linkedin_login_redirect", url=current_url)
 
-        logger.info("linkedin_login_success")
-        return page
+        if "feed" in current_url:
+            logger.info("linkedin_login_success")
+            return page
+
+        if "/checkpoint/" in current_url or "/challenge/" in current_url:
+            raise LinkedInAuthError(
+                f"LinkedIn security checkpoint — manual verification required: {current_url}"
+            )
+
+        if "/login" in current_url or "/uas/" in current_url:
+            raise LinkedInAuthError(
+                f"Login returned to login page — wrong credentials or bot detection: {current_url}"
+            )
+
+        # Unknown URL — try navigating to feed to confirm session
+        await page.goto(_FEED_URL, timeout=_TIMEOUT, wait_until="domcontentloaded")
+        if "feed" in page.url:
+            logger.info("linkedin_login_success")
+            return page
+
+        raise LinkedInAuthError(f"Login redirect did not reach feed, ended at: {page.url}")
 
     except LinkedInAuthError:
         raise
