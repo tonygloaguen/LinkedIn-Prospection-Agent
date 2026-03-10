@@ -46,6 +46,14 @@ class PostSearchError(LinkedInAgentError):
     """Raised when a keyword search fails."""
 
 
+class LinkedInSessionExpiredError(PostSearchError):
+    """Raised when a search redirect indicates the session has expired.
+
+    Pipeline behaviour: trigger mid-run re-authentication, then retry remaining keywords.
+    If re-auth fails after 3 attempts, raise LinkedInAuthError to stop the pipeline cleanly.
+    """
+
+
 class MessageGenerationError(LinkedInAgentError):
     """Raised when LLM message generation fails."""
 

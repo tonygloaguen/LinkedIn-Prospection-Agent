@@ -10,7 +10,7 @@ import structlog
 from playwright.async_api import ElementHandle, Page
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from agent.exceptions import PostSearchError
+from agent.exceptions import LinkedInSessionExpiredError, PostSearchError
 from models.post import Post
 from utils.anti_detection import simulate_human_scroll
 
@@ -96,6 +96,13 @@ def _clean_snippet(text: str, max_len: int = 500) -> str:
     if len(text) > max_len:
         text = text[:max_len].rstrip() + "…"
     return text
+
+
+def _is_login_redirect(url: str) -> bool:
+    """Return True if the URL indicates a redirect to the LinkedIn login page."""
+    return "/uas/login" in url or (
+        "/login" in url and "linkedin.com" in url and "/search/" not in url
+    )
 
 
 async def _extract_post_author_url(post_element: ElementHandle) -> str | None:
@@ -197,10 +204,11 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
 
     Strategy:
         1. Navigate with domcontentloaded (fast — avoids SPA networkidle trap).
-        2. Wait for any known post container selector to appear (explicit signal).
-        3. Scroll 5× to trigger lazy-loading of additional cards.
-        4. Try each container selector; log which one succeeded.
-        5. Extract URL, author URL, snippet from each card.
+        2. Detect redirect to /uas/login → raise LinkedInSessionExpiredError immediately.
+        3. Wait for any known post container selector to appear (explicit signal).
+        4. Scroll 5× to trigger lazy-loading of additional cards.
+        5. Try each container selector; log which one succeeded.
+        6. Extract URL, author URL, snippet from each card.
 
     Args:
         page: Authenticated Playwright Page.
@@ -210,7 +218,8 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
         List of Post objects extracted from the search results.
 
     Raises:
-        PostSearchError: If the search page fails to load or navigate.
+        LinkedInSessionExpiredError: If the session has expired (login redirect detected).
+        PostSearchError: If the search page fails to load or navigate for any other reason.
     """
     url = _build_search_url(keyword)
     logger.info("searching_posts", keyword=keyword, url=url)
@@ -229,7 +238,19 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
     except Exception as exc:
         raise PostSearchError(f"Failed to load search page for '{keyword}': {exc}") from exc
 
-    # ── 2. Wait for results to render ──────────────────────────────────────────
+    # ── 2. Detect session expiry (redirect to login) ────────────────────────────
+    final_url = page.url
+    if _is_login_redirect(final_url):
+        logger.warning(
+            "session_expired_detected",
+            keyword=keyword,
+            redirect_url=final_url,
+        )
+        raise LinkedInSessionExpiredError(
+            f"Session expired — redirected to login for keyword '{keyword}'"
+        )
+
+    # ── 3. Wait for results to render ──────────────────────────────────────────
     try:
         await page.wait_for_selector(
             _RESULTS_READY_SELECTOR,
@@ -242,11 +263,11 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
         logger.warning("results_wait_timeout", keyword=keyword)
         await page.wait_for_timeout(3_000)
 
-    # ── 3. Scroll to trigger lazy-loading ──────────────────────────────────────
+    # ── 4. Scroll to trigger lazy-loading ──────────────────────────────────────
     await simulate_human_scroll(page, scroll_count=5)
     await page.wait_for_timeout(2_000)
 
-    # ── 4. Find post elements ──────────────────────────────────────────────────
+    # ── 5. Find post elements ──────────────────────────────────────────────────
     posts: list[Post] = []
     seen_urls: set[str] = set()
     now = datetime.now(UTC).isoformat()
@@ -262,7 +283,7 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
         )
         return posts
 
-    # ── 5. Extract data from each card ────────────────────────────────────────
+    # ── 6. Extract data from each card ────────────────────────────────────────
     now = datetime.now(UTC).isoformat()
 
     for element in post_elements[:_MAX_POSTS_PER_KEYWORD]:

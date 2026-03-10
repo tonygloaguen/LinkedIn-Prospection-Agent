@@ -26,27 +26,27 @@ class _GeminiAPIError(Exception):
     """Internal signal for Gemini API errors."""
 
 
-def _get_gemini_client() -> object:
-    """Lazily import and configure the google-generativeai client.
+def _get_gemini_client() -> tuple[object, str]:
+    """Lazily import and configure the google-genai client.
 
     Returns:
-        Configured GenerativeModel instance.
+        Tuple of (Client instance, model name string).
 
     Raises:
-        LLMUnavailableError: If GEMINI_API_KEY is not set.
+        LLMUnavailableError: If google-genai is not installed or GEMINI_API_KEY is not set.
     """
     try:
-        import google.generativeai as genai  # type: ignore[import]
+        from google import genai  # type: ignore[import]
     except ImportError as exc:
-        raise LLMUnavailableError("google-generativeai package not installed") from exc
+        raise LLMUnavailableError("google-genai package not installed") from exc
 
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         raise LLMUnavailableError("GEMINI_API_KEY environment variable is not set")
 
     model_name = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
-    genai.configure(api_key=api_key)  # type: ignore[attr-defined]
-    return genai.GenerativeModel(model_name)  # type: ignore[attr-defined]
+    client = genai.Client(api_key=api_key)  # type: ignore[attr-defined]
+    return client, model_name
 
 
 async def _call_gemini_once(prompt: str) -> str:
@@ -62,12 +62,18 @@ async def _call_gemini_once(prompt: str) -> str:
         _GeminiRateLimitError: On HTTP 429 / resource exhausted.
         _GeminiAPIError: On any other Gemini error.
     """
-    model = _get_gemini_client()
+    client, model_name = _get_gemini_client()
 
     try:
-        # google-generativeai generate_content is synchronous; run in executor
+        # google-genai generate_content is synchronous; run in executor
         loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(None, model.generate_content, prompt)  # type: ignore[attr-defined]
+        response = await loop.run_in_executor(
+            None,
+            lambda: client.models.generate_content(  # type: ignore[attr-defined]
+                model=model_name,
+                contents=prompt,
+            ),
+        )
         return str(response.text)
     except Exception as exc:
         exc_str = str(exc).lower()
