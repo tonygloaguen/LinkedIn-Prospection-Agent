@@ -186,6 +186,44 @@ async def _extract_connections_count(page: Page) -> int | None:
     wait=wait_exponential(multiplier=2, min=5, max=30),
     reraise=True,
 )
+def _is_login_page(url: str) -> bool:
+    """Return True if the current URL is a LinkedIn login/auth page."""
+    return any(marker in url for marker in ("/login", "/uas/login", "/checkpoint", "/authwall"))
+
+
+async def _wait_for_profile_ready(page: Page, url: str) -> None:
+    """Wait until the profile page is actually rendered (h1 visible) or raise.
+
+    LinkedIn is a React SPA — domcontentloaded fires before React mounts.
+    We wait for the h1 (profile name) as a reliable render signal.
+
+    Args:
+        page: Playwright Page after goto().
+        url: The requested profile URL (used for error context).
+
+    Raises:
+        ProfileScrapingError: If session expired or page failed to render.
+    """
+    current_url = page.url
+    if _is_login_page(current_url):
+        raise ProfileScrapingError(
+            f"session_expired: redirected to login instead of {url}"
+        )
+
+    try:
+        await page.wait_for_selector("h1", timeout=15_000)
+    except Exception:
+        # h1 not found — may be a bot challenge or empty page
+        current_url = page.url
+        if _is_login_page(current_url):
+            raise ProfileScrapingError(
+                f"session_expired: redirected to login instead of {url}"
+            )
+        raise ProfileScrapingError(
+            f"profile_not_rendered: h1 never appeared for {url} (bot wall?)"
+        )
+
+
 async def scrape_profile(page: Page, linkedin_url: str) -> Profile:
     """Scrape a LinkedIn profile page and return a Profile object.
 
@@ -205,8 +243,13 @@ async def scrape_profile(page: Page, linkedin_url: str) -> Profile:
 
     try:
         await page.goto(linkedin_url, timeout=_TIMEOUT, wait_until="domcontentloaded")
-        await page.wait_for_timeout(2_000)
-        await simulate_human_scroll(page, scroll_count=2)
+        await _wait_for_profile_ready(page, linkedin_url)
+        # Scroll enough to trigger lazy-loaded sections (About, Experience)
+        await simulate_human_scroll(page, scroll_count=4)
+        # Extra pause after scroll so React renders lazy sections
+        await page.wait_for_timeout(1_500)
+    except ProfileScrapingError:
+        raise
     except Exception as exc:
         raise ProfileScrapingError(f"Failed to load profile page {linkedin_url}: {exc}") from exc
 

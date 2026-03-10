@@ -86,6 +86,12 @@ async def enrich_profile(
     errors = list(state["errors"])
     actions_count = state["actions_count"]
 
+    # Reserve half the remaining budget for scoring + sending.
+    # Enriching all candidates would exhaust the quota before scoring runs.
+    remaining = state["max_actions"] - actions_count
+    max_enrich = max(1, remaining // 2)
+    enrich_count = 0
+
     # current_page may be replaced after a page crash
     current_page = page
 
@@ -98,10 +104,22 @@ async def enrich_profile(
             enriched_profiles.append(profile)
             continue
 
+        # Stop enriching once the reserved budget is used — leave room for scoring/sending
+        if enrich_count >= max_enrich:
+            logger.info(
+                "enrich_budget_reached",
+                enriched=enrich_count,
+                remaining_profiles=len(state["candidate_profiles"]) - len(enriched_profiles),
+                hint="Increase max_actions or reduce keywords to enrich more profiles",
+            )
+            enriched_profiles.append(profile)  # keep un-enriched for potential later scoring
+            continue
+
         try:
             scraped = await scrape_profile(current_page, profile.linkedin_url)  # type: ignore[arg-type]
             enriched_profiles.append(scraped)
             actions_count += 1
+            enrich_count += 1
 
             await upsert_profile(db, scraped)  # type: ignore[arg-type]
 
