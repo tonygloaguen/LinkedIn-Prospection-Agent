@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import urllib.parse
 from datetime import UTC, datetime
@@ -24,6 +25,9 @@ _BASE_SEARCH_URL = (
 _TIMEOUT = 60_000
 _MAX_POSTS_PER_KEYWORD = 10
 
+# Guard: save DOM debug snapshot only once per run to avoid disk spam
+_debug_snapshot_saved = False
+
 # ── Selector chains ────────────────────────────────────────────────────────────
 # Tried in priority order; first one returning ≥1 elements wins.
 # Log which selector worked to detect silent LinkedIn DOM changes.
@@ -33,10 +37,21 @@ _POST_CONTAINER_SELECTORS: list[str] = [
     # Priority 1: URN-based — tied to LinkedIn's internal IDs, most stable
     "[data-urn*='urn:li:activity']",
     "[data-chameleon-result-urn*='urn:li:activity']",
-    # Priority 2: structural wrappers introduced ~2023
+    "[data-entity-urn*='urn:li:activity']",
+    # Priority 2: 2024-2026 structural wrappers
     ".fie-impression-container",
     ".occludable-update",
-    # Priority 3: legacy class names (may still exist in some A/B variants)
+    # Priority 3: 2024-2026 search result list items
+    "li.reusable-search__result-container",
+    ".reusable-search__result-container",
+    "[data-view-name='search-entity-result-universal-template']",
+    # Priority 4: scaffold / finite scroll containers
+    ".scaffold-finite-scroll__content li",
+    ".search-results-container li",
+    # Priority 5: generic social activity containers
+    "[class*='social-activity-container']",
+    "[class*='content-analytics-entry-point']",
+    # Priority 6: legacy class names (A/B variants)
     ".feed-shared-update-v2",
 ]
 
@@ -44,8 +59,12 @@ _POST_CONTAINER_SELECTORS: list[str] = [
 _RESULTS_READY_SELECTOR = (
     "[data-urn*='urn:li:activity'], "
     "[data-chameleon-result-urn*='urn:li:activity'], "
+    "[data-entity-urn*='urn:li:activity'], "
     ".fie-impression-container, "
     ".occludable-update, "
+    "li.reusable-search__result-container, "
+    "[data-view-name='search-entity-result-universal-template'], "
+    ".scaffold-finite-scroll__content li, "
     ".feed-shared-update-v2"
 )
 
@@ -169,6 +188,33 @@ async def _extract_post_snippet(post_element: ElementHandle) -> str | None:
     return None
 
 
+async def _save_debug_snapshot(page: Page, keyword: str) -> None:
+    """Save HTML + screenshot to /logs for DOM diagnosis (once per run)."""
+    global _debug_snapshot_saved
+    if _debug_snapshot_saved:
+        return
+    _debug_snapshot_saved = True
+
+    log_dir = os.environ.get("LOG_DIR", "/logs")
+    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    slug = re.sub(r"[^a-zA-Z0-9]", "_", keyword)[:20]
+    base = os.path.join(log_dir, f"debug_search_{slug}_{ts}")
+    try:
+        html = await page.content()
+        with open(f"{base}.html", "w", encoding="utf-8") as fh:
+            fh.write(html)
+        await page.screenshot(path=f"{base}.png", full_page=False)
+        logger.warning(
+            "debug_snapshot_saved",
+            keyword=keyword,
+            html_path=f"{base}.html",
+            screenshot_path=f"{base}.png",
+            hint="Inspect HTML to find the correct CSS selector for post cards",
+        )
+    except Exception as exc:
+        logger.warning("debug_snapshot_failed", keyword=keyword, error=str(exc))
+
+
 async def _find_post_elements(page: Page, keyword: str) -> tuple[list[ElementHandle], str]:
     """Try each container selector and return the first non-empty result set.
 
@@ -254,14 +300,14 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
     try:
         await page.wait_for_selector(
             _RESULTS_READY_SELECTOR,
-            timeout=15_000,
+            timeout=20_000,
             state="attached",
         )
         logger.debug("results_selector_appeared", keyword=keyword)
     except Exception:
-        # LinkedIn may be slow or the selector chain changed — proceed anyway
+        # LinkedIn may be slow or selectors changed — wait longer before giving up
         logger.warning("results_wait_timeout", keyword=keyword)
-        await page.wait_for_timeout(3_000)
+        await page.wait_for_timeout(5_000)
 
     # ── 4. Scroll to trigger lazy-loading ──────────────────────────────────────
     await simulate_human_scroll(page, scroll_count=5)
@@ -275,6 +321,7 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
     post_elements, active_selector = await _find_post_elements(page, keyword)
 
     if not post_elements:
+        await _save_debug_snapshot(page, keyword)
         logger.warning(
             "no_post_container_found",
             keyword=keyword,
