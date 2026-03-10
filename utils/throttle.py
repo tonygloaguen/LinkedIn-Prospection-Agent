@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import random
-from datetime import UTC, datetime
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import structlog
 
@@ -18,19 +20,30 @@ _ACTIVITY_HOUR_END = 20
 
 
 def _current_hour() -> int:
-    """Return the current UTC hour (used as proxy for local Paris time)."""
-    return datetime.now(UTC).hour
+    """Return the current hour in the configured timezone (default: Europe/Paris)."""
+    tz_name = os.environ.get("ACTIVITY_TIMEZONE", "Europe/Paris")
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        logger.warning("invalid_timezone", tz_name=tz_name, fallback="Europe/Paris")
+        tz = ZoneInfo("Europe/Paris")
+    return datetime.now(tz).hour
 
 
 def check_activity_window() -> None:
     """Raise QuotaExceededException if outside the allowed activity window (08h-20h).
 
+    The timezone is read from ACTIVITY_TIMEZONE env var (default: Europe/Paris).
+
     Raises:
         QuotaExceededException: If the current hour is outside the allowed range.
     """
+    tz_name = os.environ.get("ACTIVITY_TIMEZONE", "Europe/Paris")
     hour = _current_hour()
     if not (_ACTIVITY_HOUR_START <= hour < _ACTIVITY_HOUR_END):
-        raise QuotaExceededException(f"Outside activity window (08h-20h UTC). Current hour: {hour}")
+        raise QuotaExceededException(
+            f"Outside activity window (08h-20h {tz_name}). Current hour: {hour}"
+        )
 
 
 async def check_quotas(

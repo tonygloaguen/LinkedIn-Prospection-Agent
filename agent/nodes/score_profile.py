@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import structlog
 
-from agent.exceptions import LLMUnavailableError, QuotaExceededException
+from agent.exceptions import GeminiDailyQuotaError, LLMUnavailableError, QuotaExceededException
 from agent.state import LinkedInProspectionState
 from models.action_log import ActionLog
 from models.profile import Profile, ProfileCategory, ScoredProfile
@@ -20,6 +22,16 @@ logger = structlog.get_logger(__name__)
 _PROMPT_PATH = Path(__file__).parents[2] / "prompts" / "score_profile.txt"
 _SCORE_WEIGHTS = {"recruiter": 0.4, "technical": 0.4, "activity": 0.2}
 _MIN_SCORE_THRESHOLD = 0.3
+
+# Keywords used by the heuristic scorer when LLM daily quota is exhausted
+_RECRUITER_TERMS = (
+    "recruiter", "recruteur", "talent", "acquisition", "hiring", "head hunt", "rh ",
+)
+_TECH_TERMS = (
+    "devops", "devsecops", "cloud", "engineer", "ingénieur", "sre", "platform",
+    "security", "sécurité", "k8s", "kubernetes", "docker", "terraform", "python",
+    "observab", "mlops", "llmops", "cto", "ciso", "infrastructure", "iac",
+)
 
 
 def _load_prompt_template() -> str:
@@ -95,6 +107,61 @@ def _parse_score_response(response: str, profile: Profile) -> ScoredProfile:
     return ScoredProfile(**profile_dict)
 
 
+def _heuristic_score(profile: Profile) -> ScoredProfile:
+    """Compute heuristic scores without LLM when the daily quota is exhausted.
+
+    Uses keyword matching on headline and bio to estimate recruiter/technical
+    probability. Profiles with headline + bio typically score above the 0.3
+    send-connection threshold.
+
+    Args:
+        profile: Profile to score heuristically.
+
+    Returns:
+        ScoredProfile with estimated scores and reasoning='heuristic_daily_quota_fallback'.
+    """
+    headline = (profile.headline or "").lower()
+    bio = (profile.bio or "").lower()
+    combined = f"{headline} {bio}"
+
+    is_recruiter = any(t in headline for t in _RECRUITER_TERMS)
+    has_tech = any(t in combined for t in _TECH_TERMS)
+    has_bio = profile.bio is not None and len(profile.bio) > 30
+
+    score_recruiter = 0.65 if is_recruiter else 0.1
+    score_technical = min((0.55 if has_tech else 0.15) + (0.15 if has_bio else 0.0), 0.8)
+    score_activity = 0.55 if has_bio else 0.3
+
+    score_total = round(
+        _SCORE_WEIGHTS["recruiter"] * score_recruiter
+        + _SCORE_WEIGHTS["technical"] * score_technical
+        + _SCORE_WEIGHTS["activity"] * score_activity,
+        4,
+    )
+
+    if is_recruiter:
+        category: ProfileCategory = "recruiter"
+    elif has_tech:
+        category = "technical"
+    else:
+        category = "other"
+
+    profile_dict = profile.model_dump()
+    profile_dict.update(
+        {
+            "score_recruiter": round(score_recruiter, 4),
+            "score_technical": round(score_technical, 4),
+            "score_activity": round(score_activity, 4),
+            "score_total": score_total,
+            "profile_category": category,
+            "is_recruiter": is_recruiter,
+            "is_technical": (category in ("technical", "cto_ciso")),
+            "reasoning": "heuristic_daily_quota_fallback",
+        }
+    )
+    return ScoredProfile(**profile_dict)
+
+
 async def score_profile(
     state: LinkedInProspectionState,
     db: object,
@@ -103,7 +170,13 @@ async def score_profile(
 
     Calls the LLM for each profile with headline + bio + location.
     Saves scored profiles to the database.
-    On LLM failure after retries, assigns score=0 and category=other.
+
+    When the Gemini daily quota is exhausted (GeminiDailyQuotaError), switches
+    to heuristic scoring for all remaining profiles so the pipeline can continue
+    to send_connection without blocking on LLM failures.
+
+    A configurable inter-call delay (GEMINI_INTER_CALL_DELAY_S, default 2s)
+    is applied between LLM calls to reduce minute-level rate-limit pressure.
 
     Args:
         state: Current pipeline state with candidate_profiles.
@@ -119,6 +192,9 @@ async def score_profile(
     errors = list(state["errors"])
     actions_count = state["actions_count"]
 
+    inter_call_delay = float(os.environ.get("GEMINI_INTER_CALL_DELAY_S", "2"))
+    daily_quota_exhausted = False
+
     for profile in state["candidate_profiles"]:
         if actions_count >= state["max_actions"]:
             raise QuotaExceededException(f"Max actions ({state['max_actions']}) reached")
@@ -127,9 +203,28 @@ async def score_profile(
             continue
 
         try:
-            prompt = _build_scoring_prompt(profile)
-            response = await call_llm(prompt)
-            scored_p = _parse_score_response(response, profile)
+            if daily_quota_exhausted:
+                # Daily quota already known exhausted — use heuristic directly, no LLM call
+                scored_p = _heuristic_score(profile)
+                logger.info(
+                    "profile_scored_heuristic",
+                    name=profile.full_name,
+                    score=scored_p.score_total,
+                    category=scored_p.profile_category,
+                )
+            else:
+                prompt = _build_scoring_prompt(profile)
+                response = await call_llm(prompt)
+                scored_p = _parse_score_response(response, profile)
+                # Throttle between LLM calls to reduce per-minute rate limit pressure
+                await asyncio.sleep(inter_call_delay)
+                logger.info(
+                    "profile_scored",
+                    name=profile.full_name,
+                    score=scored_p.score_total,
+                    category=scored_p.profile_category,
+                )
+
             scored.append(scored_p)
             already_scored_ids.add(scored_p.id)
             actions_count += 1
@@ -144,22 +239,46 @@ async def score_profile(
                     payload={
                         "score_total": scored_p.score_total,
                         "category": scored_p.profile_category,
+                        "method": "heuristic" if daily_quota_exhausted else "llm",
                     },
                     success=True,
                 ),
             )
 
-            logger.info(
-                "profile_scored",
-                name=profile.full_name,
-                score=scored_p.score_total,
-                category=scored_p.profile_category,
+        except GeminiDailyQuotaError as exc:
+            # Daily quota exhausted — switch to heuristic for this and all remaining profiles
+            daily_quota_exhausted = True
+            errors.append(f"score:llm:{profile.id}: {exc}")
+            logger.warning(
+                "gemini_daily_quota_fallback_mode",
+                profile_id=profile.id,
+                quota_detail=str(exc),
+                hint="Remaining profiles will be scored heuristically",
+            )
+            scored_p = _heuristic_score(profile)
+            scored.append(scored_p)
+            already_scored_ids.add(scored_p.id)
+            actions_count += 1
+
+            await upsert_scored_profile(db, scored_p)  # type: ignore[arg-type]
+            await log_action(
+                db,  # type: ignore[arg-type]
+                ActionLog(
+                    timestamp=datetime.now(UTC).isoformat(),
+                    action_type="score",
+                    profile_id=profile.id,
+                    payload={
+                        "score_total": scored_p.score_total,
+                        "category": scored_p.profile_category,
+                        "method": "heuristic_daily_quota_fallback",
+                    },
+                    success=True,
+                ),
             )
 
         except (json.JSONDecodeError, KeyError, ValueError) as exc:
             errors.append(f"score:parse:{profile.id}: {exc}")
             logger.warning("score_parse_error", profile_id=profile.id, error=str(exc))
-            # Assign zero scores
             fallback = ScoredProfile(**profile.model_dump(), reasoning="parse_error")
             scored.append(fallback)
             already_scored_ids.add(fallback.id)

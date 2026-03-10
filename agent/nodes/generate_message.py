@@ -7,7 +7,7 @@ from pathlib import Path
 
 import structlog
 
-from agent.exceptions import LLMUnavailableError, MessageGenerationError, QuotaExceededException
+from agent.exceptions import GeminiDailyQuotaError, LLMUnavailableError, MessageGenerationError, QuotaExceededException
 from agent.state import LinkedInProspectionState
 from models.profile import ScoredProfile
 from utils.llm_client import call_llm
@@ -18,6 +18,26 @@ _PROMPTS_DIR = Path(__file__).parents[2] / "prompts"
 _MESSAGE_MAX_CHARS = 280
 _MESSAGE_MIN_CHARS = 100
 _MIN_SCORE_TO_MESSAGE = 0.3
+
+# Template messages used when Gemini daily quota is exhausted.
+# Kept intentionally generic and professional to avoid sounding robotic.
+_TEMPLATE_MESSAGES: dict[str, str] = {
+    "recruiter": (
+        "Bonjour {full_name}, je découvre votre profil et souhaite rejoindre votre réseau. "
+        "Ingénieur DevSecOps/Cloud passionné par l'automatisation et la sécurité, "
+        "je suis ouvert aux échanges et aux nouvelles opportunités. Bonne journée !"
+    ),
+    "technical": (
+        "Bonjour {full_name}, votre travail autour de {common_interest} m'a interpellé. "
+        "Ingénieur DevSecOps/Cloud, je suis toujours en quête d'échanges enrichissants "
+        "sur ces sujets. Au plaisir de rejoindre votre réseau !"
+    ),
+    "other": (
+        "Bonjour {full_name}, je serais ravi de rejoindre votre réseau professionnel. "
+        "Je travaille en DevSecOps et infrastructure cloud et suis toujours à la recherche "
+        "d'échanges constructifs. N'hésitez pas à me contacter !"
+    ),
+}
 
 
 def _load_prompt(filename: str) -> str:
@@ -90,6 +110,25 @@ def _detect_common_interest(profile: ScoredProfile) -> str:
     return "infra et DevSecOps"
 
 
+def _template_message(profile: ScoredProfile) -> str:
+    """Build a hardcoded template message when LLM daily quota is exhausted.
+
+    Args:
+        profile: Scored profile to generate the template message for.
+
+    Returns:
+        Formatted template message string (always within LinkedIn 280-char limit).
+    """
+    category = profile.profile_category if profile.profile_category in _TEMPLATE_MESSAGES else "other"
+    template = _TEMPLATE_MESSAGES[category]
+    common_interest = _detect_common_interest(profile)
+    msg = template.format(
+        full_name=profile.full_name or "cher(e) professionnel(le)",
+        common_interest=common_interest,
+    )
+    return msg[:_MESSAGE_MAX_CHARS]
+
+
 def _sanitize_message(raw: str) -> str:
     """Clean and trim LLM output to a valid LinkedIn message.
 
@@ -116,6 +155,9 @@ async def generate_message(
     Only generates messages for profiles with score_total >= _MIN_SCORE_TO_MESSAGE.
     Uses recruiter prompt for recruiter category, technical prompt for others.
 
+    When Gemini daily quota is exhausted (GeminiDailyQuotaError), switches to
+    hardcoded template messages so the pipeline can continue to send_connection.
+
     Args:
         state: Current pipeline state with scored_profiles.
         db: Active aiosqlite database connection.
@@ -131,6 +173,7 @@ async def generate_message(
     messages: dict[str, str] = dict(state["messages_generated"])
     errors = list(state["errors"])
     actions_count = state["actions_count"]
+    daily_quota_exhausted = False
 
     # Sort by score descending, limit to top profiles for messaging
     candidates = sorted(
@@ -156,6 +199,33 @@ async def generate_message(
             continue
 
         try:
+            if daily_quota_exhausted:
+                # Daily quota already confirmed exhausted — use template directly
+                message = _template_message(profile)
+                messages[profile.id] = message
+                actions_count += 1
+                logger.info(
+                    "message_generated_template",
+                    name=profile.full_name,
+                    category=profile.profile_category,
+                    message_length=len(message),
+                )
+                await log_action(
+                    db,  # type: ignore[arg-type]
+                    ActionLog(
+                        timestamp=datetime.now(UTC).isoformat(),
+                        action_type="message",
+                        profile_id=profile.id,
+                        payload={
+                            "length": len(message),
+                            "category": profile.profile_category,
+                            "method": "template_daily_quota_fallback",
+                        },
+                        success=True,
+                    ),
+                )
+                continue
+
             prompt = _select_prompt_template(profile)
             raw_message = await call_llm(prompt)
             message = _sanitize_message(raw_message)
@@ -184,6 +254,34 @@ async def generate_message(
                 name=profile.full_name,
                 category=profile.profile_category,
                 message_length=len(message),
+            )
+
+        except GeminiDailyQuotaError as exc:
+            # Daily quota exhausted — switch to template for this and remaining profiles
+            daily_quota_exhausted = True
+            errors.append(f"message:llm:{profile.id}: {exc}")
+            logger.warning(
+                "gemini_daily_quota_template_mode",
+                profile_id=profile.id,
+                quota_detail=str(exc),
+                hint="Remaining messages will use hardcoded templates",
+            )
+            message = _template_message(profile)
+            messages[profile.id] = message
+            actions_count += 1
+            await log_action(
+                db,  # type: ignore[arg-type]
+                ActionLog(
+                    timestamp=datetime.now(UTC).isoformat(),
+                    action_type="message",
+                    profile_id=profile.id,
+                    payload={
+                        "length": len(message),
+                        "category": profile.profile_category,
+                        "method": "template_daily_quota_fallback",
+                    },
+                    success=True,
+                ),
             )
 
         except LLMUnavailableError as exc:

@@ -35,6 +35,15 @@ class LLMUnavailableError(LinkedInAgentError):
     """
 
 
+class GeminiDailyQuotaError(LLMUnavailableError):
+    """Raised when the Gemini daily free-tier quota is exhausted.
+
+    Not recoverable within the current run (quota resets next day).
+    Pipeline behaviour: switch to heuristic fallback scoring for remaining
+    profiles; use template messages for generate_message.
+    """
+
+
 class PlaywrightTimeoutError(LinkedInAgentError):
     """Raised when a Playwright action times out.
 
