@@ -25,29 +25,36 @@ SEARCH_URL = "https://www.linkedin.com/search/results/content/?keywords=DevOps&s
 
 # Ordered candidate selectors — from most specific to broadest fallback
 CANDIDATE_SELECTORS: list[tuple[str, str]] = [
-    # ── Priority 1: URN-based (LinkedIn internal IDs — most stable) ────────────
-    ("[data-urn*='urn:li:activity']", "URN activity attr (modern)"),
-    ("[data-chameleon-result-urn*='urn:li:activity']", "Chameleon URN attr"),
-    # ── Priority 2: Structural / impression tracking ────────────────────────────
-    (".fie-impression-container", "Impression container (2023+)"),
-    (".occludable-update", "Occludable update (may still work)"),
-    # ── Priority 3: Legacy class names ─────────────────────────────────────────
+    # ── Priority 1: 2025 DOM (confirmed working via DOM dump analysis) ──────────
+    ("[data-testid='lazy-column']", "Lazy-column results container (2025+)"),
+    ("[data-testid='lazy-column'] > div", "Direct-child post cards of lazy-column (2025+)"),
+    ("[data-testid='expandable-text-box']", "Post text box (stable testid, 2025+)"),
+    ("a[tabindex='0'][href*='/in/']", "Author /in/ profile link (tabindex=0, 2025+)"),
+    ("a[tabindex='0'][href*='/company/']", "Author /company/ link (tabindex=0, 2025+)"),
+    ("a[tabindex='0'][href*='/pulse/']", "Article post link (tabindex=0, 2025+)"),
+    # ── Priority 2: URN-based (LinkedIn internal IDs — pre-2025) ───────────────
+    ("[data-urn*='urn:li:activity']", "URN activity attr (pre-2025)"),
+    ("[data-chameleon-result-urn*='urn:li:activity']", "Chameleon URN attr (pre-2025)"),
+    # ── Priority 3: Structural / impression tracking (2023-2024) ───────────────
+    (".fie-impression-container", "Impression container (2023-2024)"),
+    (".occludable-update", "Occludable update (2023-2024)"),
+    # ── Priority 4: Legacy class names ─────────────────────────────────────────
     (".feed-shared-update-v2", "Feed update v2 (legacy ~2022)"),
     (".search-result__occluded-item", "Search result item (legacy)"),
-    # ── Priority 4: Result container wrappers ──────────────────────────────────
+    # ── Priority 5: Result container wrappers ──────────────────────────────────
     ("li.reusable-search__result-container", "Reusable search result li"),
     (".reusable-search__result-container", "Reusable search result div"),
     (".search-results-container > div > ul > li", "Search results list items"),
-    # ── Priority 5: Link-based detection ───────────────────────────────────────
+    # ── Priority 6: Link-based detection (old formats) ─────────────────────────
     ("a[href*='/feed/update/']", "Feed update links (modern post URLs)"),
     ("a[href*='/posts/']", "Post links"),
     ("a[href*='/activity/']", "Activity links"),
     ("a[href*='/in/']", "Profile links (broad)"),
-    # ── Priority 6: Text containers ─────────────────────────────────────────────
+    # ── Priority 7: Text containers (2023-2024) ─────────────────────────────────
     (".update-components-text", "Post text component"),
     (".update-components-actor", "Post actor/author component"),
     (".update-components-actor__meta-link", "Actor meta link"),
-    # ── Priority 7: Broadest fallbacks ─────────────────────────────────────────
+    # ── Priority 8: Broadest fallbacks ─────────────────────────────────────────
     ("[data-urn]", "Any data-urn (very broad)"),
     ("article", "Article elements"),
 ]
