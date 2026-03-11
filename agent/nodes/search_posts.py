@@ -42,13 +42,31 @@ async def search_posts(
     seen_post_ids: set[str] = {p.id for p in all_posts}
     errors = list(state["errors"])
     actions_count = state["actions_count"]
+    _reauthed = False  # allow at most one re-authentication per run
 
     for keyword in state["keywords"]:
         if actions_count >= state["max_actions"]:
             raise QuotaExceededException(f"Max actions ({state['max_actions']}) reached")
 
         try:
-            posts = await search_posts_for_keyword(page, keyword)  # type: ignore[arg-type]
+            # Inner try: intercept session expiry and attempt re-auth once
+            try:
+                posts = await search_posts_for_keyword(page, keyword)  # type: ignore[arg-type]
+            except LinkedInAuthError as auth_exc:
+                if _reauthed:
+                    # Already re-authenticated once — give up
+                    raise
+                logger.warning(
+                    "session_expired_retrying_login",
+                    keyword=keyword,
+                    error=str(auth_exc),
+                )
+                from playwright_linkedin.auth import login as _relogin  # noqa: PLC0415
+
+                await _relogin(page.context)  # type: ignore[arg-type, attr-defined]
+                _reauthed = True
+                logger.info("session_refreshed_retrying", keyword=keyword)
+                posts = await search_posts_for_keyword(page, keyword)  # type: ignore[arg-type]
 
             for post in posts:
                 if post.id not in seen_post_ids:
