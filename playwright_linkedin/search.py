@@ -252,8 +252,12 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
         )
 
         # Detect session expiry: LinkedIn redirects to login page
-        if "/uas/login" in final_url or (
-            "/login" in final_url and "linkedin.com" in final_url
+        parsed_final = urllib.parse.urlparse(final_url)
+        host = (parsed_final.hostname or "").lower()
+        path = parsed_final.path or ""
+        is_linkedin_host = host == "linkedin.com" or host.endswith(".linkedin.com")
+        if is_linkedin_host and (
+            path.startswith("/uas/login") or path.startswith("/login")
         ):
             raise LinkedInAuthError(
                 f"Session expired during search — redirected to login: {final_url}"
