@@ -17,6 +17,65 @@ _FEED_URL = "https://www.linkedin.com/feed/"
 _TIMEOUT = 60_000
 _TEST_SEARCH_URL = "https://www.linkedin.com/search/results/content/?keywords=DevOps&sortBy=date"
 
+# Wider net for GDPR / cookie consent banners (LinkedIn EU variants, 2024-2025).
+# Ordered from most-specific to most-generic to avoid false positives.
+_CONSENT_SELECTORS = [
+    # Tracking-control buttons (old and new naming)
+    "button[data-tracking-control-name='ga-cookie.consent.accept.v3']",
+    "button[data-tracking-control-name='cookie-policy-accept']",
+    # action-type attribute used in some EU variants
+    "button[action-type='ACCEPT']",
+    # artdeco modal accept — the most common current variant
+    "button.artdeco-button--primary[data-test-id='accept-btn']",
+    # Cookie-policy dialog accept button
+    "button[data-id='cookie-policy-dialog-accept']",
+    # Generic "Accept all" / "Tout accepter" text match (last resort)
+    "button:has-text('Accept all')",
+    "button:has-text('Tout accepter')",
+    "button:has-text('Accepter')",
+]
+
+# Fallback selectors for the login form fields in case LinkedIn A/B-tests new IDs.
+# Tried in order; the first visible one wins.
+_USERNAME_SELECTORS = [
+    "#username",
+    "input[name='session_key']",
+    "input[autocomplete='username']",
+    "input[type='email']",
+]
+_PASSWORD_SELECTORS = [
+    "#password",
+    "input[name='session_password']",
+    "input[autocomplete='current-password']",
+    "input[type='password']",
+]
+
+
+async def _dump_page_debug(page: Page, label: str) -> None:
+    """Save a screenshot + first 8 KB of body HTML to /logs for post-mortem."""
+    base = f"/logs/screenshots/{label}"
+    try:
+        await page.screenshot(path=f"{base}.png", full_page=True)
+    except Exception:
+        pass
+    try:
+        body_html: str = await page.evaluate("document.body?.innerHTML ?? ''")
+        with open(f"{base}.html", "w", encoding="utf-8") as fh:
+            fh.write(body_html[:8192])
+    except Exception:
+        pass
+
+
+async def _find_visible(page: Page, selectors: list[str], timeout: int = 3000) -> str | None:
+    """Return the first selector from *selectors* that is currently visible, or None."""
+    for sel in selectors:
+        try:
+            if await page.locator(sel).first.is_visible(timeout=timeout):
+                return sel
+        except Exception:
+            pass
+    return None
+
 
 async def is_logged_in(page: Page) -> bool:
     """Check whether the current browser session is authenticated."""
@@ -29,7 +88,7 @@ async def is_logged_in(page: Page) -> bool:
     if "/uas/login" in url or "/login" in url:
         return False
 
-    if "s’identifier" in title or "sign in" in title:
+    if "s'identifier" in title or "sign in" in title:
         return False
 
     return "/search/results/content" in url
@@ -77,28 +136,37 @@ async def login(context: BrowserContext) -> Page:
     logger.info("linkedin_login_start")
 
     try:
-        await page.goto(_LOGIN_URL, timeout=_TIMEOUT, wait_until="load")
-        await page.wait_for_timeout(2000)
+        # networkidle gives JS-heavy consent overlays time to fully render before
+        # we look for buttons. Falls back gracefully on timeout.
+        try:
+            await page.goto(_LOGIN_URL, timeout=_TIMEOUT, wait_until="networkidle")
+        except Exception:
+            # networkidle can time-out on slow connections; domcontentloaded is enough.
+            await page.goto(_LOGIN_URL, timeout=_TIMEOUT, wait_until="domcontentloaded")
 
-        # Dismiss GDPR / cookie consent banner if present (LinkedIn EU)
-        consent_selectors = [
-            "button[data-tracking-control-name='ga-cookie.consent.accept.v3']",
-            "button[action-type='ACCEPT']",
-            "button.artdeco-button--primary[data-test-id='accept-btn']",
-        ]
-        for selector in consent_selectors:
+        # Extra settle time — RPi 4 is slow and JS consent overlays render late.
+        await page.wait_for_timeout(3000)
+
+        # ------------------------------------------------------------------
+        # Step 1: Dismiss GDPR / cookie consent banner (LinkedIn EU variants)
+        # ------------------------------------------------------------------
+        consent_sel = await _find_visible(page, _CONSENT_SELECTORS, timeout=4000)
+        if consent_sel:
             try:
-                btn = page.locator(selector).first
-                if await btn.is_visible(timeout=3000):
-                    await btn.click(timeout=5000)
-                    logger.info("linkedin_cookie_consent_dismissed", selector=selector)
-                    await page.wait_for_timeout(1500)
-                    break
-            except Exception:
-                pass
+                await page.locator(consent_sel).first.click(timeout=5000)
+                logger.info("linkedin_cookie_consent_dismissed", selector=consent_sel)
+                # Wait for the overlay to animate away before proceeding.
+                await page.wait_for_timeout(2500)
+            except Exception as exc:
+                logger.warning(
+                    "linkedin_consent_click_failed", selector=consent_sel, error=str(exc)
+                )
+        else:
+            logger.info("linkedin_no_consent_banner_detected")
 
-        # Handle "choose account" page (Bon retour parmi nous / Welcome back)
-        # LinkedIn shows this when cookies are recognized but session needs re-auth
+        # ------------------------------------------------------------------
+        # Step 2: Handle "choose account" page (Welcome back / Bon retour)
+        # ------------------------------------------------------------------
         page_title = (await page.title()).lower()
         is_choose_account = (
             "retour" in page_title
@@ -106,9 +174,13 @@ async def login(context: BrowserContext) -> Page:
             or "choose" in page_title
         )
         if not is_choose_account:
-            # Also check by looking for the account picker element
             try:
-                picker = page.locator(".sign-in-form__account-picker, [data-test-id='choose-account-btn'], .account-picker").first
+                _picker_sel = (
+                    ".sign-in-form__account-picker,"
+                    " [data-test-id='choose-account-btn'],"
+                    " .account-picker"
+                )
+                picker = page.locator(_picker_sel).first
                 if await picker.is_visible(timeout=3000):
                     is_choose_account = True
             except Exception:
@@ -116,7 +188,6 @@ async def login(context: BrowserContext) -> Page:
 
         if is_choose_account:
             logger.info("linkedin_choose_account_page_detected")
-            # Click the first account card (our account)
             choose_selectors = [
                 ".sign-in-form__account-picker li:first-child button",
                 ".account-picker__account-btn",
@@ -139,55 +210,53 @@ async def login(context: BrowserContext) -> Page:
                     pass
 
             if not clicked:
-                # Fallback: take screenshot and raise
-                screenshot_path = "/logs/screenshots/choose_account_debug.png"
-                try:
-                    await page.screenshot(path=screenshot_path, full_page=True)
-                except Exception:
-                    pass
+                await _dump_page_debug(page, "choose_account_debug")
                 raise LinkedInAuthError(
                     f"Could not click account on choose-account page — url: {page.url}"
                 )
 
-            # After clicking account, check if we reached the feed or need password
-            current_url = page.url
-            if "feed" in current_url:
+            if "feed" in page.url:
                 logger.info("linkedin_login_success")
                 return page
 
-        # Verify the login form is present (standard form or post-account-pick password)
-        try:
-            await page.wait_for_selector("#username, #password", timeout=15_000)
-        except Exception:
+        # ------------------------------------------------------------------
+        # Step 3: Locate login form fields with fallback selectors
+        # ------------------------------------------------------------------
+        username_sel = await _find_visible(page, _USERNAME_SELECTORS, timeout=20_000)
+        password_sel = await _find_visible(page, _PASSWORD_SELECTORS, timeout=5_000)
+
+        if not username_sel and not password_sel:
             current_url = page.url
             title = await page.title()
-            # Check if we somehow landed on the feed already
             if "feed" in current_url:
                 logger.info("linkedin_login_success")
                 return page
-            screenshot_path = "/logs/screenshots/login_debug.png"
-            try:
-                await page.screenshot(path=screenshot_path, full_page=True)
-                logger.warning(
-                    "login_form_not_found",
-                    url=current_url,
-                    title=title,
-                    screenshot=screenshot_path,
-                )
-            except Exception:
-                logger.warning("login_form_not_found", url=current_url, title=title)
+            await _dump_page_debug(page, "login_debug")
+            logger.warning(
+                "login_form_not_found",
+                url=current_url,
+                title=title,
+                screenshot="/logs/screenshots/login_debug.png",
+                html_dump="/logs/screenshots/login_debug.html",
+            )
             raise LinkedInAuthError(
-                f"Login form (#username) not found — page: {title!r} at {current_url}"
+                f"Login form not found — page: {title!r} at {current_url}"
             )
 
-        # Fill credentials (only fields that are visible)
-        try:
-            username_field = page.locator("#username")
-            if await username_field.is_visible(timeout=3000):
-                await page.fill("#username", email, timeout=_TIMEOUT)
-        except Exception:
-            pass
-        await page.fill("#password", password, timeout=_TIMEOUT)
+        logger.info(
+            "login_form_found",
+            username_selector=username_sel,
+            password_selector=password_sel,
+        )
+
+        # ------------------------------------------------------------------
+        # Step 4: Fill credentials and submit
+        # ------------------------------------------------------------------
+        if username_sel:
+            await page.fill(username_sel, email, timeout=_TIMEOUT)
+
+        pw_sel = password_sel or _PASSWORD_SELECTORS[0]
+        await page.fill(pw_sel, password, timeout=_TIMEOUT)
         await page.click("button[type='submit']", timeout=_TIMEOUT)
 
         # Wait for any navigation after submit (feed, checkpoint, or error)
