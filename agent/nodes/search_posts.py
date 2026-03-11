@@ -63,7 +63,7 @@ async def search_posts(
                 )
                 from playwright_linkedin.auth import login as _relogin  # noqa: PLC0415
 
-                await _relogin(page.context)  # type: ignore[arg-type]
+                await _relogin(page.context)  # type: ignore[arg-type, attr-defined]
                 _reauthed = True
                 logger.info("session_refreshed_retrying", keyword=keyword)
                 posts = await search_posts_for_keyword(page, keyword)  # type: ignore[arg-type]
