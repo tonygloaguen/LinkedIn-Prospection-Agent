@@ -27,21 +27,35 @@ _MAX_POSTS_PER_KEYWORD = 10
 # ── Selector chains ────────────────────────────────────────────────────────────
 # Tried in priority order; first one returning ≥1 elements wins.
 # Log which selector worked to detect silent LinkedIn DOM changes.
+#
+# DOM analysis performed on 2025-03 HTML dump (keywords="DevOps"):
+#   - All URN/class-based selectors (urn:li:activity, fie-impression-container,
+#     update-components-*, feed-shared-*) return 0 matches in the new DOM.
+#   - LinkedIn now uses data-testid="lazy-column" as the search results container.
+#     Each direct child div is one post card.
+#   - Post text lives in [data-testid="expandable-text-box"] (stable test ID).
+#   - Author links use tabindex="0" a[href*="/in/"] (distinct from inline
+#     tagged-people links which use tabindex="-1").
+#   - Post permalink URLs are no longer embedded; article posts expose
+#     /pulse/ links; job posts expose /jobs/view/ links (both with tabindex="0").
 
 # Post container selectors (outer card element)
 _POST_CONTAINER_SELECTORS: list[str] = [
-    # Priority 1: URN-based — tied to LinkedIn's internal IDs, most stable
+    # Priority 1: 2025 DOM — direct children of the lazy-column results container
+    "[data-testid='lazy-column'] > div",
+    # Priority 2: URN-based — tied to LinkedIn's internal IDs (pre-2025)
     "[data-urn*='urn:li:activity']",
     "[data-chameleon-result-urn*='urn:li:activity']",
-    # Priority 2: structural wrappers introduced ~2023
+    # Priority 3: structural wrappers introduced ~2023
     ".fie-impression-container",
     ".occludable-update",
-    # Priority 3: legacy class names (may still exist in some A/B variants)
+    # Priority 4: legacy class names (may still exist in some A/B variants)
     ".feed-shared-update-v2",
 ]
 
 # Selector to wait for before attempting extraction (any of these = results loaded)
 _RESULTS_READY_SELECTOR = (
+    "[data-testid='lazy-column'], "
     "[data-urn*='urn:li:activity'], "
     "[data-chameleon-result-urn*='urn:li:activity'], "
     ".fie-impression-container, "
@@ -51,14 +65,23 @@ _RESULTS_READY_SELECTOR = (
 
 # Post URL link selectors (inside a post card)
 _POST_URL_SELECTORS: list[str] = [
-    "a[href*='/feed/update/']",  # Modern format: /feed/update/urn:li:activity:…
-    "a[href*='/posts/']",  # Alternative: /posts/name_activity-…
-    "a[href*='/activity/']",  # Old format
+    # 2025 DOM: article posts link to /pulse/, job posts to /jobs/view/
+    # tabindex="0" distinguishes header/action links from inline body links (tabindex="-1")
+    "a[tabindex='0'][href*='/pulse/']",
+    "a[tabindex='0'][href*='/jobs/view/']",
+    # Pre-2025 formats
+    "a[href*='/feed/update/']",  # /feed/update/urn:li:activity:…
+    "a[href*='/posts/']",  # /posts/name_activity-…
+    "a[href*='/activity/']",  # old format
     "a[data-control-name='feed_detail_shares']",
 ]
 
 # Author profile URL selectors (inside a post card)
 _AUTHOR_URL_SELECTORS: list[str] = [
+    # 2025 DOM: author avatar/name links carry tabindex="0"; inline mentions use tabindex="-1"
+    "a[tabindex='0'][href*='/in/']",
+    "a[tabindex='0'][href*='/company/']",  # company page authors
+    # Pre-2025 selectors
     ".update-components-actor__meta-link",  # 2023+ primary
     "a.update-components-actor__name[href*='/in/']",
     ".update-components-actor__name a[href*='/in/']",
@@ -69,6 +92,7 @@ _AUTHOR_URL_SELECTORS: list[str] = [
 
 # Post text content selectors (inside a post card)
 _SNIPPET_SELECTORS: list[str] = [
+    "[data-testid='expandable-text-box']",  # 2025+ primary (stable test ID)
     ".update-components-text span[dir='ltr']",  # 2024+ primary
     ".update-components-text",
     ".feed-shared-update-v2__description",
@@ -105,14 +129,14 @@ async def _extract_post_author_url(post_element: ElementHandle) -> str | None:
         post_element: Playwright element handle for the post card.
 
     Returns:
-        Normalised LinkedIn /in/ profile URL, or None if not found.
+        Normalised LinkedIn /in/ or /company/ profile URL, or None if not found.
     """
     try:
         for sel in _AUTHOR_URL_SELECTORS:
             el = await post_element.query_selector(sel)
             if el:
                 href = await el.get_attribute("href")
-                if href and "/in/" in href:
+                if href and ("/in/" in href or "/company/" in href):
                     # Strip query params and trailing slash
                     return str(href.split("?")[0].rstrip("/"))
     except Exception:
@@ -271,14 +295,19 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
             post_url = await _extract_post_url(element)
             snippet = await _extract_post_snippet(element)
 
-            if not author_url or not post_url:
+            if not author_url:
                 logger.debug(
-                    "post_skipped_missing_fields",
+                    "post_skipped_missing_author",
                     keyword=keyword,
-                    has_author=author_url is not None,
                     has_url=post_url is not None,
                 )
                 continue
+
+            # 2025 DOM: text-only posts have no embedded permalink.
+            # Fall back to the author profile URL as a unique-enough post key.
+            if not post_url:
+                post_url = author_url
+                logger.debug("post_url_fallback_to_author", keyword=keyword, author_url=author_url)
 
             if post_url in seen_urls:
                 continue
