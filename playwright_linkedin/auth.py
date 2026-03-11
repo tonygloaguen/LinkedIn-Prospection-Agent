@@ -168,28 +168,67 @@ async def login(context: BrowserContext) -> Page:
         # Step 2: Handle "choose account" page (Welcome back / Bon retour)
         # ------------------------------------------------------------------
         page_title = (await page.title()).lower()
+        current_url_lower = page.url.lower()
         is_choose_account = (
             "retour" in page_title
             or "welcome back" in page_title
             or "choose" in page_title
         )
         if not is_choose_account:
+            # Broader selector list covering current LinkedIn DOM variants (2024-2025).
+            # The page shows saved-account cards; any of these elements being present
+            # indicates the account-picker flow rather than the standard login form.
+            _picker_selectors = [
+                ".sign-in-form__account-picker",
+                ".sign-in-form__account-picker-toggle",
+                "[data-test-id='sign-in-form__account-picker-toggle']",
+                "[data-test-id='choose-account-btn']",
+                ".account-picker",
+                "li.sign-in-form__account-picker-item",
+                ".artdeco-list__item",
+            ]
+            for _psel in _picker_selectors:
+                try:
+                    if await page.locator(_psel).first.is_visible(timeout=2000):
+                        is_choose_account = True
+                        break
+                except Exception:
+                    pass
+
+        # Extra heuristic: URL looks like a login page but there is no username
+        # field — strong signal that an account-picker overlay is present.
+        if not is_choose_account and "login" in current_url_lower:
             try:
-                _picker_sel = (
-                    ".sign-in-form__account-picker,"
-                    " [data-test-id='choose-account-btn'],"
-                    " .account-picker"
+                username_visible = await page.locator(_USERNAME_SELECTORS[0]).first.is_visible(
+                    timeout=2000
                 )
-                picker = page.locator(_picker_sel).first
-                if await picker.is_visible(timeout=3000):
-                    is_choose_account = True
+                if not username_visible:
+                    # Check for any list item that could be an account card
+                    for _card_sel in [
+                        "li.sign-in-form__account-picker-item",
+                        "[data-test-id='choose-account-btn']",
+                        ".artdeco-list__item",
+                    ]:
+                        try:
+                            if await page.locator(_card_sel).first.is_visible(timeout=1500):
+                                is_choose_account = True
+                                break
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
         if is_choose_account:
             logger.info("linkedin_choose_account_page_detected")
+            # Try selectors from most-specific to most-generic; the first visible
+            # one is clicked to navigate to the password-entry form.
             choose_selectors = [
+                "li.sign-in-form__account-picker-item:first-child button",
+                "li.sign-in-form__account-picker-item:first-child",
+                "[data-test-id='choose-account-btn']:first-child",
                 ".sign-in-form__account-picker li:first-child button",
+                ".artdeco-list__item:first-child button",
+                ".artdeco-list__item:first-child",
                 ".account-picker__account-btn",
                 "[data-test-id='choose-account-btn']",
                 "li.account-picker__account button",
@@ -218,6 +257,42 @@ async def login(context: BrowserContext) -> Page:
             if "feed" in page.url:
                 logger.info("linkedin_login_success")
                 return page
+
+            # After clicking the account card LinkedIn shows the password form.
+            # Only #password (not #username) is expected at this point.
+            password_sel = await _find_visible(page, _PASSWORD_SELECTORS, timeout=20_000)
+            if password_sel:
+                pw_sel = password_sel
+                await page.fill(pw_sel, password, timeout=_TIMEOUT)
+                await page.click("button[type='submit']", timeout=_TIMEOUT)
+                await page.wait_for_load_state("domcontentloaded", timeout=_TIMEOUT)
+                await page.wait_for_timeout(2000)
+
+                current_url = page.url
+                logger.info("linkedin_login_redirect", url=current_url)
+
+                if "feed" in current_url:
+                    logger.info("linkedin_login_success")
+                    return page
+
+                if "/checkpoint/" in current_url or "/challenge/" in current_url:
+                    raise LinkedInAuthError(
+                        f"LinkedIn security checkpoint — manual verification required: {current_url}"
+                    )
+
+                if "/login" in current_url or "/uas/" in current_url:
+                    raise LinkedInAuthError(
+                        f"Login returned to login page — wrong credentials or bot detection: {current_url}"
+                    )
+
+                await page.goto(_FEED_URL, timeout=_TIMEOUT, wait_until="domcontentloaded")
+                if "feed" in page.url:
+                    logger.info("linkedin_login_success")
+                    return page
+
+                raise LinkedInAuthError(
+                    f"Login via account-picker did not reach feed, ended at: {page.url}"
+                )
 
         # ------------------------------------------------------------------
         # Step 3: Locate login form fields with fallback selectors
