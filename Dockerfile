@@ -66,6 +66,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy virtualenv from builder
 COPY --from=builder /app/.venv /app/.venv
+
+RUN /app/.venv/bin/pip install playwright-stealth
+
 ENV PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
