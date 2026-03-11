@@ -10,7 +10,7 @@ import structlog
 from playwright.async_api import ElementHandle, Page
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from agent.exceptions import PostSearchError
+from agent.exceptions import LinkedInAuthError, PostSearchError
 from models.post import Post
 from utils.anti_detection import simulate_human_scroll
 
@@ -250,6 +250,16 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
             final_url=final_url,
             title=title,
         )
+
+        # Detect session expiry: LinkedIn redirects to login page
+        if "/uas/login" in final_url or (
+            "/login" in final_url and "linkedin.com" in final_url
+        ):
+            raise LinkedInAuthError(
+                f"Session expired during search — redirected to login: {final_url}"
+            )
+    except LinkedInAuthError:
+        raise
     except Exception as exc:
         raise PostSearchError(f"Failed to load search page for '{keyword}': {exc}") from exc
 
