@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import urllib.parse
 from datetime import UTC, datetime
@@ -10,7 +11,8 @@ import structlog
 from playwright.async_api import ElementHandle, Page
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from agent.exceptions import LinkedInAuthError, PostSearchError
+from agent.exceptions import LinkedInSessionExpiredError, PostSearchError
+
 from models.post import Post
 from utils.anti_detection import simulate_human_scroll
 
@@ -23,6 +25,9 @@ _BASE_SEARCH_URL = (
 
 _TIMEOUT = 60_000
 _MAX_POSTS_PER_KEYWORD = 10
+
+# Guard: save DOM debug snapshot only once per run to avoid disk spam
+_debug_snapshot_saved = False
 
 # ── Selector chains ────────────────────────────────────────────────────────────
 # Tried in priority order; first one returning ≥1 elements wins.
@@ -58,8 +63,12 @@ _RESULTS_READY_SELECTOR = (
     "[data-testid='lazy-column'], "
     "[data-urn*='urn:li:activity'], "
     "[data-chameleon-result-urn*='urn:li:activity'], "
+    "[data-entity-urn*='urn:li:activity'], "
     ".fie-impression-container, "
     ".occludable-update, "
+    "li.reusable-search__result-container, "
+    "[data-view-name='search-entity-result-universal-template'], "
+    ".scaffold-finite-scroll__content li, "
     ".feed-shared-update-v2"
 )
 
@@ -120,6 +129,13 @@ def _clean_snippet(text: str, max_len: int = 500) -> str:
     if len(text) > max_len:
         text = text[:max_len].rstrip() + "…"
     return text
+
+
+def _is_login_redirect(url: str) -> bool:
+    """Return True if the URL indicates a redirect to the LinkedIn login page."""
+    return "/uas/login" in url or (
+        "/login" in url and "linkedin.com" in url and "/search/" not in url
+    )
 
 
 async def _extract_post_author_url(post_element: ElementHandle) -> str | None:
@@ -186,6 +202,33 @@ async def _extract_post_snippet(post_element: ElementHandle) -> str | None:
     return None
 
 
+async def _save_debug_snapshot(page: Page, keyword: str) -> None:
+    """Save HTML + screenshot to /logs for DOM diagnosis (once per run)."""
+    global _debug_snapshot_saved
+    if _debug_snapshot_saved:
+        return
+    _debug_snapshot_saved = True
+
+    log_dir = os.environ.get("LOG_DIR", "/logs")
+    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    slug = re.sub(r"[^a-zA-Z0-9]", "_", keyword)[:20]
+    base = os.path.join(log_dir, f"debug_search_{slug}_{ts}")
+    try:
+        html = await page.content()
+        with open(f"{base}.html", "w", encoding="utf-8") as fh:
+            fh.write(html)
+        await page.screenshot(path=f"{base}.png", full_page=False)
+        logger.warning(
+            "debug_snapshot_saved",
+            keyword=keyword,
+            html_path=f"{base}.html",
+            screenshot_path=f"{base}.png",
+            hint="Inspect HTML to find the correct CSS selector for post cards",
+        )
+    except Exception as exc:
+        logger.warning("debug_snapshot_failed", keyword=keyword, error=str(exc))
+
+
 async def _find_post_elements(page: Page, keyword: str) -> tuple[list[ElementHandle], str]:
     """Try each container selector and return the first non-empty result set.
 
@@ -221,10 +264,11 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
 
     Strategy:
         1. Navigate with domcontentloaded (fast — avoids SPA networkidle trap).
-        2. Wait for any known post container selector to appear (explicit signal).
-        3. Scroll 5× to trigger lazy-loading of additional cards.
-        4. Try each container selector; log which one succeeded.
-        5. Extract URL, author URL, snippet from each card.
+        2. Detect redirect to /uas/login → raise LinkedInSessionExpiredError immediately.
+        3. Wait for any known post container selector to appear (explicit signal).
+        4. Scroll 5× to trigger lazy-loading of additional cards.
+        5. Try each container selector; log which one succeeded.
+        6. Extract URL, author URL, snippet from each card.
 
     Args:
         page: Authenticated Playwright Page.
@@ -234,7 +278,8 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
         List of Post objects extracted from the search results.
 
     Raises:
-        PostSearchError: If the search page fails to load or navigate.
+        LinkedInSessionExpiredError: If the session has expired (login redirect detected).
+        PostSearchError: If the search page fails to load or navigate for any other reason.
     """
     url = _build_search_url(keyword)
     logger.info("searching_posts", keyword=keyword, url=url)
@@ -267,24 +312,36 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
     except Exception as exc:
         raise PostSearchError(f"Failed to load search page for '{keyword}': {exc}") from exc
 
-    # ── 2. Wait for results to render ──────────────────────────────────────────
+    # ── 2. Detect session expiry (redirect to login) ────────────────────────────
+    final_url = page.url
+    if _is_login_redirect(final_url):
+        logger.warning(
+            "session_expired_detected",
+            keyword=keyword,
+            redirect_url=final_url,
+        )
+        raise LinkedInSessionExpiredError(
+            f"Session expired — redirected to login for keyword '{keyword}'"
+        )
+
+    # ── 3. Wait for results to render ──────────────────────────────────────────
     try:
         await page.wait_for_selector(
             _RESULTS_READY_SELECTOR,
-            timeout=15_000,
+            timeout=20_000,
             state="attached",
         )
         logger.debug("results_selector_appeared", keyword=keyword)
     except Exception:
-        # LinkedIn may be slow or the selector chain changed — proceed anyway
+        # LinkedIn may be slow or selectors changed — wait longer before giving up
         logger.warning("results_wait_timeout", keyword=keyword)
-        await page.wait_for_timeout(3_000)
+        await page.wait_for_timeout(5_000)
 
-    # ── 3. Scroll to trigger lazy-loading ──────────────────────────────────────
+    # ── 4. Scroll to trigger lazy-loading ──────────────────────────────────────
     await simulate_human_scroll(page, scroll_count=5)
     await page.wait_for_timeout(2_000)
 
-    # ── 4. Find post elements ──────────────────────────────────────────────────
+    # ── 5. Find post elements ──────────────────────────────────────────────────
     posts: list[Post] = []
     seen_urls: set[str] = set()
     now = datetime.now(UTC).isoformat()
@@ -292,6 +349,7 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
     post_elements, active_selector = await _find_post_elements(page, keyword)
 
     if not post_elements:
+        await _save_debug_snapshot(page, keyword)
         logger.warning(
             "no_post_container_found",
             keyword=keyword,
@@ -300,7 +358,7 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
         )
         return posts
 
-    # ── 5. Extract data from each card ────────────────────────────────────────
+    # ── 6. Extract data from each card ────────────────────────────────────────
     now = datetime.now(UTC).isoformat()
 
     for element in post_elements[:_MAX_POSTS_PER_KEYWORD]:

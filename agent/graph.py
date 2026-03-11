@@ -131,9 +131,9 @@ async def run_pipeline(
             state = initial_state
 
             node_sequence = [
-                ("search_posts", lambda s: search_posts(s, page, db)),
+                ("search_posts", lambda s: search_posts(s, page, db, context)),
                 ("extract_profiles", lambda s: extract_profiles(s, page, db)),
-                ("enrich_profile", lambda s: enrich_profile(s, page, db)),
+                ("enrich_profile", lambda s: enrich_profile(s, page, db, context)),
                 ("score_profile", lambda s: score_profile(s, db)),
                 ("generate_message", lambda s: generate_message(s, db)),
                 ("send_connection", lambda s: send_connection(s, page, db)),

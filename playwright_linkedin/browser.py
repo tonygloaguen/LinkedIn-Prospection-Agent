@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ from playwright.async_api import (
     Browser,
     BrowserContext,
     Geolocation,
+    Page,
     Playwright,
     async_playwright,
 )
@@ -65,6 +67,28 @@ async def _load_cookies(context: BrowserContext) -> bool:
         return False
 
 
+def _apply_stealth_to_context(context: BrowserContext) -> None:
+    """Register a page event handler so stealth patches are applied to every new page.
+
+    This must be called once on the context. Every subsequent context.new_page()
+    will automatically receive stealth patches via the 'page' event.
+
+    Args:
+        context: Active Playwright browser context.
+    """
+    try:
+        from playwright_stealth import stealth_async  # type: ignore[import]
+
+        def _on_page(page: Page) -> None:
+            """Schedule stealth_async on the new page without blocking the event loop."""
+            asyncio.ensure_future(stealth_async(page))
+
+        context.on("page", _on_page)
+        logger.info("playwright_stealth_enabled")
+    except ImportError:
+        logger.warning("playwright_stealth_not_installed")
+
+
 async def get_browser_context(playwright: Playwright) -> tuple[Browser, BrowserContext]:
     """Create a Playwright browser and context with stealth settings.
 
@@ -87,6 +111,7 @@ async def get_browser_context(playwright: Playwright) -> tuple[Browser, BrowserC
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--disable-gpu",
+            "--disable-software-rasterizer",  # reduce GPU memory pressure on RPi
             "--disable-extensions",
             "--disable-blink-features=AutomationControlled",
             "--disable-infobars",
@@ -105,15 +130,8 @@ async def get_browser_context(playwright: Playwright) -> tuple[Browser, BrowserC
         },
     )
 
-    # Apply stealth patches
-    try:
-        from playwright_stealth import stealth_async  # type: ignore[import]
-
-        page = await context.new_page()
-        await stealth_async(page)
-        await page.close()
-    except ImportError:
-        logger.warning("playwright_stealth_not_installed")
+    # Register stealth on context so every new_page() gets it automatically
+    _apply_stealth_to_context(context)
 
     await _load_cookies(context)
 
@@ -124,6 +142,23 @@ async def get_browser_context(playwright: Playwright) -> tuple[Browser, BrowserC
     )
 
     return browser, context
+
+
+async def new_page_with_stealth(context: BrowserContext) -> Page:
+    """Create a new page; stealth is applied automatically via the context event handler.
+
+    Use this helper anywhere a fresh page is needed after a crash or re-auth.
+
+    Args:
+        context: Active Playwright browser context (stealth must have been registered).
+
+    Returns:
+        New Playwright Page with stealth applied.
+    """
+    page = await context.new_page()
+    # Give the stealth coroutine a moment to complete before the caller uses the page
+    await asyncio.sleep(0.1)
+    return page
 
 
 class BrowserManager:
