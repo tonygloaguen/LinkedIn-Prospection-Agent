@@ -50,7 +50,9 @@ async def main() -> None:
         session_path.write_text(json.dumps(cookies, indent=2))
         print(f"\nSaved {len(cookies)} cookies to {session_path}")
         print("\nNext step — copy to RPi:")
-        print(f"  scp {session_path} gloaguen@AI-Automation-Rpi:/opt/linkedin-agent/data/session.json")
+        print(
+            f"  scp {session_path} gloaguen@AI-Automation-Rpi:/opt/linkedin-agent/data/session.json"
+        )
 
         await browser.close()
 

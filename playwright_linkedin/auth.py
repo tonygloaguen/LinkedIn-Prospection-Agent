@@ -170,9 +170,7 @@ async def login(context: BrowserContext) -> Page:
         page_title = (await page.title()).lower()
         current_url_lower = page.url.lower()
         is_choose_account = (
-            "retour" in page_title
-            or "welcome back" in page_title
-            or "choose" in page_title
+            "retour" in page_title or "welcome back" in page_title or "choose" in page_title
         )
         if not is_choose_account:
             # Broader selector list covering current LinkedIn DOM variants (2024-2025).
@@ -314,9 +312,7 @@ async def login(context: BrowserContext) -> Page:
                 screenshot="/logs/screenshots/login_debug.png",
                 html_dump="/logs/screenshots/login_debug.html",
             )
-            raise LinkedInAuthError(
-                f"Login form not found — page: {title!r} at {current_url}"
-            )
+            raise LinkedInAuthError(f"Login form not found — page: {title!r} at {current_url}")
 
         logger.info(
             "login_form_found",

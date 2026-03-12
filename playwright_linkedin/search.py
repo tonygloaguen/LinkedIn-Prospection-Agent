@@ -301,9 +301,7 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
         host = (parsed_final.hostname or "").lower()
         path = parsed_final.path or ""
         is_linkedin_host = host == "linkedin.com" or host.endswith(".linkedin.com")
-        if is_linkedin_host and (
-            path.startswith("/uas/login") or path.startswith("/login")
-        ):
+        if is_linkedin_host and (path.startswith("/uas/login") or path.startswith("/login")):
             raise LinkedInAuthError(
                 f"Session expired during search — redirected to login: {final_url}"
             )
