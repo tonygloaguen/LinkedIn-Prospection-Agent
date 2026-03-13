@@ -343,29 +343,76 @@ async def scrape_commenters(page: Page, post_url: str, max_commenters: int = 3) 
     Returns:
         List of commenter LinkedIn profile URLs.
     """
+    # Skip non-feed URLs — job listings and profile pages have no comment section
+    _skip_patterns = ("/jobs/view/", "/jobs/search/", "/pulse/")
+    for pattern in _skip_patterns:
+        if pattern in post_url:
+            logger.info("commenter_skip_non_feed", post_url=post_url, reason=pattern)
+            return []
+
+    # If post_url is a profile page (author fallback), skip it too
+    try:
+        from urllib.parse import urlparse
+
+        _path = urlparse(post_url).path
+        if _path.startswith("/in/") or _path.startswith("/company/"):
+            logger.info("commenter_skip_profile_url", post_url=post_url)
+            return []
+    except Exception:
+        pass
+
     logger.info("scraping_commenters", post_url=post_url)
     urls: list[str] = []
 
     try:
         await page.goto(post_url, timeout=_TIMEOUT, wait_until="domcontentloaded")
+        await page.wait_for_timeout(3_000)
+        await simulate_human_scroll(page, scroll_count=3)
         await page.wait_for_timeout(2_000)
-        await simulate_human_scroll(page, scroll_count=2)
 
-        # Find commenter profile links
+        # Try clicking "View more comments" if present
+        for view_more_sel in [
+            "button.comments-comments-list__load-more-comments-button",
+            "button[aria-label*='comment']",
+            "button:has-text('View')",
+            "button:has-text('Voir')",
+        ]:
+            try:
+                btn = page.locator(view_more_sel).first
+                if await btn.is_visible(timeout=2000):
+                    await btn.click(timeout=3000)
+                    await page.wait_for_timeout(2000)
+                    break
+            except Exception:
+                pass
+
+        # 2025 LinkedIn comment selectors (ordered: most specific → most generic)
         selectors = [
-            ".comments-post-meta__profile-link",
-            "a[data-control-name='comment_actor_name']",
+            # 2025 primary: article-based comment items
+            "article.comments-comment-item a[href*='/in/']",
+            ".comments-comment-item .comments-post-meta a[href*='/in/']",
+            ".comments-comment-item a.app-aware-link[href*='/in/']",
+            # 2024 variants
             ".comments-comment-item__post-meta a[href*='/in/']",
+            ".comments-post-meta__profile-link",
+            # Broader container fallback
+            ".comments-comments-list a[href*='/in/']",
+            # Legacy
+            "a[data-control-name='comment_actor_name']",
+            # Very broad — any /in/ link inside a comment context
+            "[data-test-id*='comment'] a[href*='/in/']",
         ]
 
         for sel in selectors:
             elements = await page.query_selector_all(sel)
-            for el in elements[:max_commenters]:
+            for el in elements[: max_commenters * 2]:
                 href = await el.get_attribute("href")
                 if href and "/in/" in href:
                     url = href.split("?")[0].rstrip("/")
                     if url not in urls:
                         urls.append(url)
+                        if len(urls) >= max_commenters:
+                            break
             if urls:
                 break
 
