@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import urllib.parse
@@ -24,6 +25,10 @@ _BASE_SEARCH_URL = (
 
 _TIMEOUT = 60_000
 _MAX_POSTS_PER_KEYWORD = 10
+# Max seconds to extract one post element before skipping it
+_ELEMENT_EXTRACT_TIMEOUT = 5.0
+# Max seconds for the entire keyword search (navigation + extraction)
+_KEYWORD_TIMEOUT = 120.0
 
 # Guard: save DOM debug snapshot only once per run to avoid disk spam
 _debug_snapshot_saved = False
@@ -252,13 +257,28 @@ async def _find_post_elements(page: Page, keyword: str) -> tuple[list[ElementHan
     return [], ""
 
 
+async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
+    """Wrapper that enforces a hard per-keyword timeout."""
+    try:
+        return await asyncio.wait_for(
+            _search_posts_for_keyword(page, keyword), timeout=_KEYWORD_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            "keyword_search_timeout",
+            keyword=keyword,
+            timeout=_KEYWORD_TIMEOUT,
+        )
+        raise PostSearchError(f"Keyword search timed out after {_KEYWORD_TIMEOUT}s: '{keyword}'")
+
+
 @retry(
     retry=retry_if_exception_type(PostSearchError),
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=2, min=5, max=30),
     reraise=True,
 )
-async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
+async def _search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
     """Search LinkedIn for posts matching a keyword and extract post data.
 
     Strategy:
@@ -360,9 +380,15 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
 
     for element in post_elements[:_MAX_POSTS_PER_KEYWORD]:
         try:
-            author_url = await _extract_post_author_url(element)
-            post_url = await _extract_post_url(element)
-            snippet = await _extract_post_snippet(element)
+            author_url = await asyncio.wait_for(
+                _extract_post_author_url(element), timeout=_ELEMENT_EXTRACT_TIMEOUT
+            )
+            post_url = await asyncio.wait_for(
+                _extract_post_url(element), timeout=_ELEMENT_EXTRACT_TIMEOUT
+            )
+            snippet = await asyncio.wait_for(
+                _extract_post_snippet(element), timeout=_ELEMENT_EXTRACT_TIMEOUT
+            )
 
             if not author_url:
                 logger.debug(
@@ -392,6 +418,13 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
                 )
             )
 
+        except asyncio.TimeoutError:
+            logger.warning(
+                "post_extraction_timeout",
+                keyword=keyword,
+                selector=active_selector,
+                timeout=_ELEMENT_EXTRACT_TIMEOUT,
+            )
         except Exception as exc:
             logger.warning(
                 "post_extraction_error",
