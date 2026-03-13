@@ -190,14 +190,14 @@ async def score_profile(
     state: LinkedInProspectionState,
     db: object,
 ) -> LinkedInProspectionState:
-    """Score all candidate profiles using Gemini LLM.
+    """Score all candidate profiles using Gemini LLM with heuristic fallback.
 
     Calls the LLM for each profile with headline + bio + location.
     Saves scored profiles to the database.
 
-    When the Gemini daily quota is exhausted (GeminiDailyQuotaError), switches
-    to heuristic scoring for all remaining profiles so the pipeline can continue
-    to send_connection without blocking on LLM failures.
+    When the LLM becomes unavailable (daily quota exhausted or persistent rate limit),
+    switches to heuristic keyword-based scoring for all remaining profiles so the
+    pipeline can continue to send_connection without blocking.
 
     A configurable inter-call delay (GEMINI_INTER_CALL_DELAY_S, default 2s)
     is applied between LLM calls to reduce minute-level rate-limit pressure.
@@ -217,7 +217,7 @@ async def score_profile(
     actions_count = state["actions_count"]
 
     inter_call_delay = float(os.environ.get("GEMINI_INTER_CALL_DELAY_S", "2"))
-    daily_quota_exhausted = False
+    llm_unavailable = False  # once True, use heuristic for all remaining profiles
 
     for profile in state["candidate_profiles"]:
         if actions_count >= state["max_actions"]:
@@ -227,8 +227,8 @@ async def score_profile(
             continue
 
         try:
-            if daily_quota_exhausted:
-                # Daily quota already known exhausted — use heuristic directly, no LLM call
+            if llm_unavailable:
+                # LLM already failed — use heuristic directly, no API call
                 scored_p = _heuristic_score(profile)
                 logger.info(
                     "profile_scored_heuristic",
@@ -263,15 +263,15 @@ async def score_profile(
                     payload={
                         "score_total": scored_p.score_total,
                         "category": scored_p.profile_category,
-                        "method": "heuristic" if daily_quota_exhausted else "llm",
+                        "method": "heuristic" if llm_unavailable else "llm",
                     },
                     success=True,
                 ),
             )
 
         except GeminiDailyQuotaError as exc:
-            # Daily quota exhausted — switch to heuristic for this and all remaining profiles
-            daily_quota_exhausted = True
+            # Daily quota exhausted on primary + fallback models — switch to heuristic
+            llm_unavailable = True
             errors.append(f"score:llm:{profile.id}: {exc}")
             logger.warning(
                 "gemini_daily_quota_fallback_mode",
@@ -308,20 +308,33 @@ async def score_profile(
             already_scored_ids.add(fallback.id)
 
         except LLMUnavailableError as exc:
+            # Persistent rate limit or other LLM failure — switch to heuristic
+            llm_unavailable = True
             errors.append(f"score:llm:{profile.id}: {exc}")
-            logger.error("llm_unavailable", profile_id=profile.id, error=str(exc))
-            fallback = ScoredProfile(**profile.model_dump(), reasoning="llm_unavailable")
-            scored.append(fallback)
-            already_scored_ids.add(fallback.id)
+            logger.warning(
+                "llm_unavailable_heuristic_fallback",
+                profile_id=profile.id,
+                error=str(exc),
+                hint="Switching to heuristic scoring for remaining profiles",
+            )
+            scored_p = _heuristic_score(profile)
+            scored.append(scored_p)
+            already_scored_ids.add(scored_p.id)
+            actions_count += 1
+
+            await upsert_scored_profile(db, scored_p)  # type: ignore[arg-type]
             await log_action(
                 db,  # type: ignore[arg-type]
                 ActionLog(
                     timestamp=datetime.now(UTC).isoformat(),
-                    action_type="error",
+                    action_type="score",
                     profile_id=profile.id,
-                    payload={"reason": "llm_unavailable"},
-                    success=False,
-                    error_message=str(exc),
+                    payload={
+                        "score_total": scored_p.score_total,
+                        "category": scored_p.profile_category,
+                        "method": "heuristic_llm_unavailable",
+                    },
+                    success=True,
                 ),
             )
 
