@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 
 import structlog
 
-from agent.exceptions import QuotaExceededException
 from agent.state import LinkedInProspectionState
 from models.action_log import ActionLog
 from models.profile import Profile
@@ -45,11 +44,9 @@ async def extract_profiles(
     errors = list(state["errors"])
     actions_count = state["actions_count"]
 
+    quota_reached = False
     for post in state["collected_posts"]:
-        if actions_count >= state["max_actions"]:
-            raise QuotaExceededException(f"Max actions ({state['max_actions']}) reached")
-
-        # Add post author
+        # Add post author — free operation, no action budget consumed
         if post.author_linkedin_url not in seen_urls:
             profile = Profile(
                 linkedin_url=post.author_linkedin_url,
@@ -57,6 +54,11 @@ async def extract_profiles(
             )
             existing_profiles.append(profile)
             seen_urls.add(post.author_linkedin_url)
+
+        # Commenter scraping consumes action budget — skip when exhausted
+        if actions_count >= state["max_actions"]:
+            quota_reached = True
+            continue
 
         # Extract commenters
         try:
@@ -94,8 +96,18 @@ async def extract_profiles(
     metrics = dict(state["run_metrics"])
     metrics["profiles_extracted"] = len(existing_profiles)
 
+    if quota_reached:
+        logger.info(
+            "commenter_quota_reached",
+            actions_used=actions_count,
+            max_actions=state["max_actions"],
+            authors_collected=len(existing_profiles),
+        )
+
     logger.info("profiles_extracted", total=len(existing_profiles))
 
+    # Return state with all collected profiles — quota is handled via actions_count
+    # so downstream nodes (score, invite) still run with what we have.
     return {
         **state,
         "candidate_profiles": existing_profiles,

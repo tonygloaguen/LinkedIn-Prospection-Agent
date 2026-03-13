@@ -11,7 +11,7 @@ from typing import Any
 
 import structlog
 
-from agent.exceptions import LLMUnavailableError, QuotaExceededException
+from agent.exceptions import GeminiDailyQuotaError, LLMUnavailableError, QuotaExceededException
 from agent.state import LinkedInProspectionState
 from models.action_log import ActionLog
 from models.profile import Profile, ProfileCategory, ScoredProfile
@@ -23,7 +23,7 @@ _PROMPT_PATH = Path(__file__).parents[2] / "prompts" / "score_profile.txt"
 _SCORE_WEIGHTS = {"recruiter": 0.4, "technical": 0.4, "activity": 0.2}
 _MIN_SCORE_THRESHOLD = 0.3
 
-# Keywords used by the heuristic scorer when LLM quota is exhausted
+# Keywords used by the heuristic scorer when LLM daily quota is exhausted
 _RECRUITER_TERMS = (
     "recruiter",
     "recruteur",
@@ -132,7 +132,7 @@ def _parse_score_response(response: str, profile: Profile) -> ScoredProfile:
 
 
 def _heuristic_score(profile: Profile) -> ScoredProfile:
-    """Compute heuristic scores without LLM when the API quota is exhausted.
+    """Compute heuristic scores without LLM when the daily quota is exhausted.
 
     Uses keyword matching on headline and bio to estimate recruiter/technical
     probability. Profiles with headline + bio typically score above the 0.3
@@ -142,7 +142,7 @@ def _heuristic_score(profile: Profile) -> ScoredProfile:
         profile: Profile to score heuristically.
 
     Returns:
-        ScoredProfile with estimated scores and reasoning='heuristic_llm_unavailable'.
+        ScoredProfile with estimated scores and reasoning='heuristic_daily_quota_fallback'.
     """
     headline = (profile.headline or "").lower()
     bio = (profile.bio or "").lower()
@@ -180,7 +180,7 @@ def _heuristic_score(profile: Profile) -> ScoredProfile:
             "profile_category": category,
             "is_recruiter": is_recruiter,
             "is_technical": (category in ("technical", "cto_ciso")),
-            "reasoning": "heuristic_llm_unavailable",
+            "reasoning": "heuristic_daily_quota_fallback",
         }
     )
     return ScoredProfile(**profile_dict)
@@ -195,7 +195,7 @@ async def score_profile(
     Calls the LLM for each profile with headline + bio + location.
     Saves scored profiles to the database.
 
-    When the LLM becomes unavailable (quota exhausted or persistent rate limit),
+    When the LLM becomes unavailable (daily quota exhausted or persistent rate limit),
     switches to heuristic keyword-based scoring for all remaining profiles so the
     pipeline can continue to send_connection without blocking.
 
@@ -240,6 +240,7 @@ async def score_profile(
                 prompt = _build_scoring_prompt(profile)
                 response = await call_llm(prompt)
                 scored_p = _parse_score_response(response, profile)
+                # Throttle between LLM calls to reduce per-minute rate limit pressure
                 await asyncio.sleep(inter_call_delay)
                 logger.info(
                     "profile_scored",
@@ -268,6 +269,37 @@ async def score_profile(
                 ),
             )
 
+        except GeminiDailyQuotaError as exc:
+            # Daily quota exhausted on primary + fallback models — switch to heuristic
+            llm_unavailable = True
+            errors.append(f"score:llm:{profile.id}: {exc}")
+            logger.warning(
+                "gemini_daily_quota_fallback_mode",
+                profile_id=profile.id,
+                quota_detail=str(exc),
+                hint="Remaining profiles will be scored heuristically",
+            )
+            scored_p = _heuristic_score(profile)
+            scored.append(scored_p)
+            already_scored_ids.add(scored_p.id)
+            actions_count += 1
+
+            await upsert_scored_profile(db, scored_p)  # type: ignore[arg-type]
+            await log_action(
+                db,  # type: ignore[arg-type]
+                ActionLog(
+                    timestamp=datetime.now(UTC).isoformat(),
+                    action_type="score",
+                    profile_id=profile.id,
+                    payload={
+                        "score_total": scored_p.score_total,
+                        "category": scored_p.profile_category,
+                        "method": "heuristic_daily_quota_fallback",
+                    },
+                    success=True,
+                ),
+            )
+
         except (json.JSONDecodeError, KeyError, ValueError) as exc:
             errors.append(f"score:parse:{profile.id}: {exc}")
             logger.warning("score_parse_error", profile_id=profile.id, error=str(exc))
@@ -276,8 +308,7 @@ async def score_profile(
             already_scored_ids.add(fallback.id)
 
         except LLMUnavailableError as exc:
-            # LLM unavailable (quota exhausted or persistent rate limit) — switch to
-            # heuristic scoring for this and all remaining profiles.
+            # Persistent rate limit or other LLM failure — switch to heuristic
             llm_unavailable = True
             errors.append(f"score:llm:{profile.id}: {exc}")
             logger.warning(

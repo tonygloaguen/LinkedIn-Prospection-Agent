@@ -35,6 +35,15 @@ class LLMUnavailableError(LinkedInAgentError):
     """
 
 
+class GeminiDailyQuotaError(LLMUnavailableError):
+    """Raised when the Gemini daily free-tier quota is exhausted.
+
+    Not recoverable within the current run (quota resets next day).
+    Pipeline behaviour: switch to heuristic fallback scoring for remaining
+    profiles; use template messages for generate_message.
+    """
+
+
 class PlaywrightTimeoutError(LinkedInAgentError):
     """Raised when a Playwright action times out.
 
@@ -44,6 +53,14 @@ class PlaywrightTimeoutError(LinkedInAgentError):
 
 class PostSearchError(LinkedInAgentError):
     """Raised when a keyword search fails."""
+
+
+class LinkedInSessionExpiredError(PostSearchError):
+    """Raised when a search redirect indicates the session has expired.
+
+    Pipeline behaviour: trigger mid-run re-authentication, then retry remaining keywords.
+    If re-auth fails after 3 attempts, raise LinkedInAuthError to stop the pipeline cleanly.
+    """
 
 
 class MessageGenerationError(LinkedInAgentError):

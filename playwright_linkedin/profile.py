@@ -38,6 +38,120 @@ async def _safe_inner_text(page: Page, selector: str) -> str | None:
     return None
 
 
+async def _extract_name_js(page: Page) -> str | None:
+    """Extract full name via JavaScript — more resilient to DOM class changes.
+
+    Strategy (in order):
+      1. First <h1> on the page (LinkedIn profile always has exactly one).
+      2. Any element with aria-label containing the person's name pattern.
+      3. <title> tag (format: "Firstname Lastname | LinkedIn").
+
+    Args:
+        page: Playwright Page on a LinkedIn profile.
+
+    Returns:
+        Full name string or None.
+    """
+    try:
+        name: str | None = await page.evaluate(
+            """
+            () => {
+                // 1. First h1 — always the profile name on /in/ pages
+                const h1 = document.querySelector('h1');
+                if (h1 && h1.innerText && h1.innerText.trim().length > 1) {
+                    return h1.innerText.trim();
+                }
+                // 2. data-generated-suggestion or aria-label on known wrappers
+                const labeled = document.querySelector(
+                    '[aria-label][class*="profile"], [data-member-id] h1'
+                );
+                if (labeled) {
+                    const t = labeled.innerText || labeled.getAttribute('aria-label');
+                    if (t && t.trim().length > 1) return t.trim();
+                }
+                // 3. <title> fallback: "Name | LinkedIn" or "Name - LinkedIn"
+                const title = document.title || '';
+                const titleMatch = title.match(/^([^|\\-]+)[|\\-]/);
+                if (titleMatch) {
+                    const candidate = titleMatch[1].trim();
+                    if (candidate.length > 1 && !candidate.toLowerCase().includes('linkedin')) {
+                        return candidate;
+                    }
+                }
+                return null;
+            }
+            """
+        )
+        return name if name else None
+    except Exception:
+        return None
+
+
+async def _extract_bio_js(page: Page) -> str | None:
+    """Extract the About/bio section via JavaScript.
+
+    Strategy:
+      1. Section with id="about" — look for the visible text span inside.
+      2. Any element with data-generated-suggestion (LinkedIn's about section marker).
+      3. CSS selector chain as last resort.
+
+    Args:
+        page: Playwright Page on a LinkedIn profile.
+
+    Returns:
+        Bio text string or None.
+    """
+    try:
+        bio: str | None = await page.evaluate(
+            """
+            () => {
+                // 1. #about anchor → navigate to the parent section and find text
+                const aboutAnchor = document.getElementById('about');
+                if (aboutAnchor) {
+                    // The about section is typically a sibling or nearby section
+                    let el = aboutAnchor.closest('section');
+                    if (!el) {
+                        // Try next section sibling of the anchor's parent
+                        let parent = aboutAnchor.parentElement;
+                        while (parent && parent.tagName !== 'SECTION') {
+                            parent = parent.parentElement;
+                        }
+                        el = parent;
+                    }
+                    if (el) {
+                        // Prefer aria-hidden=true spans (hidden from SR but visible)
+                        const hiddenSpan = el.querySelector("span[aria-hidden='true']");
+                        const txt = hiddenSpan && hiddenSpan.innerText;
+                        if (txt && txt.trim().length > 10) {
+                            return hiddenSpan.innerText.trim();
+                        }
+                        // Fallback: any <p> or <span> with substantial text
+                        const spans = el.querySelectorAll('span, p');
+                        for (const s of spans) {
+                            const t = s.innerText ? s.innerText.trim() : '';
+                            if (t.length > 20) return t;
+                        }
+                    }
+                }
+                // 2. data-generated-suggestion attribute (stable LinkedIn marker)
+                const suggested = document.querySelector('[data-generated-suggestion]');
+                if (suggested && suggested.innerText) return suggested.innerText.trim();
+
+                // 3. pv-shared-text-with-see-more (legacy but still deployed in some variants)
+                const sharedText = document.querySelector(
+                    '.pv-shared-text-with-see-more span[aria-hidden="true"]'
+                );
+                if (sharedText && sharedText.innerText) return sharedText.innerText.trim();
+
+                return null;
+            }
+            """
+        )
+        return bio if bio and len(bio) > 5 else None
+    except Exception:
+        return None
+
+
 async def _extract_connections_count(page: Page) -> int | None:
     """Extract the connections count from the profile sidebar.
 
@@ -73,6 +187,38 @@ async def _extract_connections_count(page: Page) -> int | None:
     wait=wait_exponential(multiplier=2, min=5, max=30),
     reraise=True,
 )
+def _is_login_page(url: str) -> bool:
+    """Return True if the current URL is a LinkedIn login/auth page."""
+    return any(marker in url for marker in ("/login", "/uas/login", "/checkpoint", "/authwall"))
+
+
+async def _wait_for_profile_ready(page: Page, url: str) -> None:
+    """Wait until the profile page is actually rendered (h1 visible) or raise.
+
+    LinkedIn is a React SPA — domcontentloaded fires before React mounts.
+    We wait for the h1 (profile name) as a reliable render signal.
+
+    Args:
+        page: Playwright Page after goto().
+        url: The requested profile URL (used for error context).
+
+    Raises:
+        ProfileScrapingError: If session expired or page failed to render.
+    """
+    current_url = page.url
+    if _is_login_page(current_url):
+        raise ProfileScrapingError(f"session_expired: redirected to login instead of {url}")
+
+    try:
+        await page.wait_for_selector("h1", timeout=15_000)
+    except Exception:
+        # h1 not found — may be a bot challenge or empty page
+        current_url = page.url
+        if _is_login_page(current_url):
+            raise ProfileScrapingError(f"session_expired: redirected to login instead of {url}")
+        raise ProfileScrapingError(f"profile_not_rendered: h1 never appeared for {url} (bot wall?)")
+
+
 async def scrape_profile(page: Page, linkedin_url: str) -> Profile:
     """Scrape a LinkedIn profile page and return a Profile object.
 
@@ -92,33 +238,71 @@ async def scrape_profile(page: Page, linkedin_url: str) -> Profile:
 
     try:
         await page.goto(linkedin_url, timeout=_TIMEOUT, wait_until="domcontentloaded")
-        await page.wait_for_timeout(2_000)
-        await simulate_human_scroll(page, scroll_count=2)
+        await _wait_for_profile_ready(page, linkedin_url)
+        # Scroll enough to trigger lazy-loaded sections (About, Experience)
+        await simulate_human_scroll(page, scroll_count=4)
+        # Extra pause after scroll so React renders lazy sections
+        await page.wait_for_timeout(1_500)
+    except ProfileScrapingError:
+        raise
     except Exception as exc:
         raise ProfileScrapingError(f"Failed to load profile page {linkedin_url}: {exc}") from exc
 
     now = datetime.now(UTC).isoformat()
 
-    # Full name
-    full_name = await _safe_inner_text(page, "h1.text-heading-xlarge, h1[class*='inline t-24']")
+    # Full name — JS extraction first (stable), CSS chain as fallback
+    full_name = await _extract_name_js(page)
+    if not full_name:
+        full_name = await _safe_inner_text(
+            page,
+            "h1.text-heading-xlarge, h1[class*='inline t-24'], h1",
+        )
 
-    # Headline
+    if not full_name:
+        logger.warning(
+            "profile_name_null",
+            url=linkedin_url,
+            hint="LinkedIn DOM may have changed — JS and CSS fallbacks both failed",
+        )
+
+    # Headline — CSS selectors + JS fallback
     headline = await _safe_inner_text(
         page,
         ".text-body-medium.break-words, div[class*='pv-text-details__left-panel'] div:nth-child(2)",
     )
+    if not headline:
+        try:
+            headline = await page.evaluate(
+                """
+                () => {
+                    // Headline is typically the 2nd significant text block under h1
+                    const h1 = document.querySelector('h1');
+                    if (!h1) return null;
+                    let el = h1.nextElementSibling;
+                    while (el) {
+                        const t = el.innerText ? el.innerText.trim() : '';
+                        if (t.length > 3) return t;
+                        el = el.nextElementSibling;
+                    }
+                    return null;
+                }
+                """
+            )
+        except Exception:
+            pass
 
-    # Bio / About section
-    bio: str | None = None
-    bio_selectors = [
-        "#about ~ div .display-flex span[aria-hidden='true']",
-        ".pv-shared-text-with-see-more span[aria-hidden='true']",
-        "section.pv-about-section p",
-    ]
-    for sel in bio_selectors:
-        bio = await _safe_inner_text(page, sel)
-        if bio:
-            break
+    # Bio / About section — JS extraction first, CSS chain as fallback
+    bio = await _extract_bio_js(page)
+    if not bio:
+        bio_selectors = [
+            "#about ~ div .display-flex span[aria-hidden='true']",
+            ".pv-shared-text-with-see-more span[aria-hidden='true']",
+            "section.pv-about-section p",
+        ]
+        for sel in bio_selectors:
+            bio = await _safe_inner_text(page, sel)
+            if bio:
+                break
 
     # Location
     location = await _safe_inner_text(
@@ -159,29 +343,76 @@ async def scrape_commenters(page: Page, post_url: str, max_commenters: int = 3) 
     Returns:
         List of commenter LinkedIn profile URLs.
     """
+    # Skip non-feed URLs — job listings and profile pages have no comment section
+    _skip_patterns = ("/jobs/view/", "/jobs/search/", "/pulse/")
+    for pattern in _skip_patterns:
+        if pattern in post_url:
+            logger.info("commenter_skip_non_feed", post_url=post_url, reason=pattern)
+            return []
+
+    # If post_url is a profile page (author fallback), skip it too
+    try:
+        from urllib.parse import urlparse
+
+        _path = urlparse(post_url).path
+        if _path.startswith("/in/") or _path.startswith("/company/"):
+            logger.info("commenter_skip_profile_url", post_url=post_url)
+            return []
+    except Exception:
+        pass
+
     logger.info("scraping_commenters", post_url=post_url)
     urls: list[str] = []
 
     try:
         await page.goto(post_url, timeout=_TIMEOUT, wait_until="domcontentloaded")
+        await page.wait_for_timeout(3_000)
+        await simulate_human_scroll(page, scroll_count=3)
         await page.wait_for_timeout(2_000)
-        await simulate_human_scroll(page, scroll_count=2)
 
-        # Find commenter profile links
+        # Try clicking "View more comments" if present
+        for view_more_sel in [
+            "button.comments-comments-list__load-more-comments-button",
+            "button[aria-label*='comment']",
+            "button:has-text('View')",
+            "button:has-text('Voir')",
+        ]:
+            try:
+                btn = page.locator(view_more_sel).first
+                if await btn.is_visible(timeout=2000):
+                    await btn.click(timeout=3000)
+                    await page.wait_for_timeout(2000)
+                    break
+            except Exception:
+                pass
+
+        # 2025 LinkedIn comment selectors (ordered: most specific → most generic)
         selectors = [
-            ".comments-post-meta__profile-link",
-            "a[data-control-name='comment_actor_name']",
+            # 2025 primary: article-based comment items
+            "article.comments-comment-item a[href*='/in/']",
+            ".comments-comment-item .comments-post-meta a[href*='/in/']",
+            ".comments-comment-item a.app-aware-link[href*='/in/']",
+            # 2024 variants
             ".comments-comment-item__post-meta a[href*='/in/']",
+            ".comments-post-meta__profile-link",
+            # Broader container fallback
+            ".comments-comments-list a[href*='/in/']",
+            # Legacy
+            "a[data-control-name='comment_actor_name']",
+            # Very broad — any /in/ link inside a comment context
+            "[data-test-id*='comment'] a[href*='/in/']",
         ]
 
         for sel in selectors:
             elements = await page.query_selector_all(sel)
-            for el in elements[:max_commenters]:
+            for el in elements[: max_commenters * 2]:
                 href = await el.get_attribute("href")
                 if href and "/in/" in href:
                     url = href.split("?")[0].rstrip("/")
                     if url not in urls:
                         urls.append(url)
+                        if len(urls) >= max_commenters:
+                            break
             if urls:
                 break
 
