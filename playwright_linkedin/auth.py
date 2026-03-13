@@ -275,12 +275,14 @@ async def login(context: BrowserContext) -> Page:
 
                 if "/checkpoint/" in current_url or "/challenge/" in current_url:
                     raise LinkedInAuthError(
-                        f"LinkedIn security checkpoint — manual verification required: {current_url}"
+                        "LinkedIn security checkpoint — manual verification"
+                        f" required: {current_url}"
                     )
 
                 if "/login" in current_url or "/uas/" in current_url:
                     raise LinkedInAuthError(
-                        f"Login returned to login page — wrong credentials or bot detection: {current_url}"
+                        "Login returned to login page — wrong credentials or"
+                        f" bot detection: {current_url}"
                     )
 
                 await page.goto(_FEED_URL, timeout=_TIMEOUT, wait_until="domcontentloaded")
