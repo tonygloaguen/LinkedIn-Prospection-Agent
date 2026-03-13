@@ -174,7 +174,8 @@ async def search_posts(
 
             if reauth_page is None:
                 raise LinkedInAuthError(
-                    f"Session expired mid-run — re-auth failed after {_REAUTH_MAX_ATTEMPTS} attempts"
+                    "Session expired mid-run — re-auth failed after"
+                    f" {_REAUTH_MAX_ATTEMPTS} attempts"
                 ) from exc
 
             # Switch to the fresh authenticated page for all remaining keywords

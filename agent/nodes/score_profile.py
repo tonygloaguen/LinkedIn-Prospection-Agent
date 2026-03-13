@@ -25,12 +25,36 @@ _MIN_SCORE_THRESHOLD = 0.3
 
 # Keywords used by the heuristic scorer when LLM daily quota is exhausted
 _RECRUITER_TERMS = (
-    "recruiter", "recruteur", "talent", "acquisition", "hiring", "head hunt", "rh ",
+    "recruiter",
+    "recruteur",
+    "talent",
+    "acquisition",
+    "hiring",
+    "head hunt",
+    "rh ",
 )
 _TECH_TERMS = (
-    "devops", "devsecops", "cloud", "engineer", "ingénieur", "sre", "platform",
-    "security", "sécurité", "k8s", "kubernetes", "docker", "terraform", "python",
-    "observab", "mlops", "llmops", "cto", "ciso", "infrastructure", "iac",
+    "devops",
+    "devsecops",
+    "cloud",
+    "engineer",
+    "ingénieur",
+    "sre",
+    "platform",
+    "security",
+    "sécurité",
+    "k8s",
+    "kubernetes",
+    "docker",
+    "terraform",
+    "python",
+    "observab",
+    "mlops",
+    "llmops",
+    "cto",
+    "ciso",
+    "infrastructure",
+    "iac",
 )
 
 

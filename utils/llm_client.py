@@ -21,7 +21,7 @@ logger = structlog.get_logger(__name__)
 # These differ from per-minute rate limits which resolve after a short wait.
 _DAILY_QUOTA_MARKERS = (
     "generate_content_free_tier_requests",  # Free-tier RPD quota id
-    "generaterequestsperdayperproject",     # Quota id (lowercase match)
+    "generaterequestsperdayperproject",  # Quota id (lowercase match)
     "requests_per_day",
     "requests per day",
     "daily limit",
