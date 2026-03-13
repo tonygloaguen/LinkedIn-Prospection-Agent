@@ -87,13 +87,28 @@ async def enrich_profile(
     actions_count = state["actions_count"]
 
     # Reserve half the remaining budget for scoring + sending.
-    # Enriching all candidates would exhaust the quota before scoring runs.
     remaining = state["max_actions"] - actions_count
     max_enrich = max(1, remaining // 2)
     enrich_count = 0
 
     # current_page may be replaced after a page crash
     current_page = page
+
+    # ── Resilience counters ──────────────────────────────────────────────────
+    # Track consecutive failures to detect a bot wall early and pause/abort
+    # rather than hammering LinkedIn for 100+ profiles in a row.
+    _consecutive_failures = 0
+    _total_attempts = 0
+    _total_successes = 0
+    # After this many consecutive failures we pause for a longer delay.
+    _CONSECUTIVE_FAIL_PAUSE_THRESHOLD = int(
+        __import__("os").environ.get("ENRICH_PAUSE_AFTER_FAILURES", "5")
+    )
+    # After this many consecutive failures we give up enriching (circuit breaker).
+    _CONSECUTIVE_FAIL_ABORT_THRESHOLD = int(
+        __import__("os").environ.get("ENRICH_ABORT_AFTER_FAILURES", "10")
+    )
+    # ─────────────────────────────────────────────────────────────────────────
 
     for profile in state["candidate_profiles"]:
         if actions_count >= state["max_actions"]:
@@ -104,7 +119,7 @@ async def enrich_profile(
             enriched_profiles.append(profile)
             continue
 
-        # Stop enriching once the reserved budget is used — leave room for scoring/sending
+        # Stop enriching once the reserved budget is used
         if enrich_count >= max_enrich:
             logger.info(
                 "enrich_budget_reached",
@@ -112,14 +127,31 @@ async def enrich_profile(
                 remaining_profiles=len(state["candidate_profiles"]) - len(enriched_profiles),
                 hint="Increase max_actions or reduce keywords to enrich more profiles",
             )
-            enriched_profiles.append(profile)  # keep un-enriched for potential later scoring
+            enriched_profiles.append(profile)
             continue
+
+        # ── Circuit breaker: stop if bot wall is detected ────────────────────
+        if _consecutive_failures >= _CONSECUTIVE_FAIL_ABORT_THRESHOLD:
+            logger.warning(
+                "enrich_circuit_breaker_open",
+                consecutive_failures=_consecutive_failures,
+                total_attempts=_total_attempts,
+                total_successes=_total_successes,
+                hint="LinkedIn likely blocking all profile requests — skipping remaining profiles",
+            )
+            enriched_profiles.append(profile)
+            continue
+        # ─────────────────────────────────────────────────────────────────────
+
+        _total_attempts += 1
 
         try:
             scraped = await scrape_profile(current_page, profile.linkedin_url)  # type: ignore[arg-type]
             enriched_profiles.append(scraped)
             actions_count += 1
             enrich_count += 1
+            _total_successes += 1
+            _consecutive_failures = 0  # reset on success
 
             await upsert_profile(db, scraped)  # type: ignore[arg-type]
 
@@ -138,22 +170,26 @@ async def enrich_profile(
                 "profile_enriched",
                 url=profile.linkedin_url,
                 name=scraped.full_name,
+                success_rate=f"{_total_successes}/{_total_attempts}",
             )
 
             await delay_between_profile_visits()
 
         except ProfileScrapingError as exc:
             error_str = str(exc)
+            _consecutive_failures += 1
             errors.append(f"enrich:{profile.linkedin_url}: {exc}")
+
+            # Extract the classified category from the error prefix (e.g. "profile_challenge_detected")
+            error_category = error_str.split(":")[0] if ":" in error_str else "profile_scraping_error"
 
             if _is_page_crash(error_str):
                 logger.error(
                     "profile_scraping_failed",
                     url=profile.linkedin_url,
-                    error=error_str,
+                    error_category="page_crash",
                     action="recycling_page",
                 )
-                # Recycle the page to avoid using a corrupted context for the next profile
                 if context is not None:
                     try:
                         current_page = await _recycle_page(context)
@@ -169,7 +205,9 @@ async def enrich_profile(
                 logger.warning(
                     "profile_scraping_failed",
                     url=profile.linkedin_url,
-                    error=error_str,
+                    error_category=error_category,
+                    consecutive_failures=_consecutive_failures,
+                    success_rate=f"{_total_successes}/{_total_attempts}",
                 )
 
             enriched_profiles.append(profile)  # Keep partial data
@@ -178,19 +216,49 @@ async def enrich_profile(
                 ActionLog(
                     timestamp=datetime.now(UTC).isoformat(),
                     action_type="error",
-                    payload={"url": profile.linkedin_url},
+                    payload={"url": profile.linkedin_url, "error_category": error_category},
                     success=False,
                     error_message=error_str,
                 ),
             )
+
+            # ── Pause heuristic: slow down after a burst of consecutive failures ──
+            if (
+                _consecutive_failures == _CONSECUTIVE_FAIL_PAUSE_THRESHOLD
+                and error_category in ("profile_challenge_detected", "profile_timeout_dom_incomplete")
+            ):
+                import random
+                pause_s = random.uniform(30, 60)
+                logger.warning(
+                    "enrich_consecutive_failures_pause",
+                    consecutive_failures=_consecutive_failures,
+                    pause_seconds=round(pause_s, 1),
+                    hint="Likely bot-wall — pausing before continuing",
+                )
+                await current_page.wait_for_timeout(int(pause_s * 1000))
+            # ─────────────────────────────────────────────────────────────────
+
         except Exception as exc:
+            _consecutive_failures += 1
             errors.append(f"enrich:{profile.linkedin_url}: {exc}")
             enriched_profiles.append(profile)
             logger.error(
                 "profile_enrich_unexpected",
                 url=profile.linkedin_url,
                 error=str(exc),
+                consecutive_failures=_consecutive_failures,
             )
+
+    # ── Final enrichment summary ─────────────────────────────────────────────
+    logger.info(
+        "enrich_node_summary",
+        total_profiles=len(state["candidate_profiles"]),
+        enriched=_total_successes,
+        attempts=_total_attempts,
+        success_rate=f"{_total_successes}/{_total_attempts}" if _total_attempts else "0/0",
+        circuit_breaker_triggered=_consecutive_failures >= _CONSECUTIVE_FAIL_ABORT_THRESHOLD,
+    )
+    # ─────────────────────────────────────────────────────────────────────────
 
     return {
         **state,
