@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import UTC, datetime
 
@@ -16,6 +17,83 @@ from utils.anti_detection import simulate_human_scroll
 logger = structlog.get_logger(__name__)
 
 _TIMEOUT = 60_000
+
+# ── Error classification ──────────────────────────────────────────────────────
+
+_LOGIN_URL_MARKERS = ("/login", "/uas/login", "/checkpoint", "/authwall")
+_CHALLENGE_URL_MARKERS = ("/challenge",)
+_CHALLENGE_CONTENT_MARKERS = (
+    "security check", "unusual activity", "verify you're a human",
+    "captcha", "vérification de sécurité", "let's do a quick",
+    "we noticed unusual", "identity verification",
+)
+_UNAVAILABLE_CONTENT_MARKERS = (
+    "page not found", "this profile is not available",
+    "this linkedin page isn't available", "profil introuvable",
+    "n'est pas disponible", "no longer available",
+)
+
+
+def _classify_profile_error(
+    final_url: str,
+    title: str,
+    html_snippet: str,
+) -> str:
+    """Map observable page signals to an actionable error category.
+
+    Categories (used as the ProfileScrapingError prefix):
+      - profile_redirected_to_login   → session expired
+      - profile_challenge_detected    → bot wall / captcha / security check
+      - profile_unavailable           → deleted / private / geo-blocked
+      - profile_timeout_dom_incomplete → h1 never rendered (slow RPi, React lag)
+    """
+    combined = f"{final_url} {title} {html_snippet}".lower()
+
+    if any(m in final_url for m in _LOGIN_URL_MARKERS):
+        return "profile_redirected_to_login"
+
+    if any(m in final_url for m in _CHALLENGE_URL_MARKERS):
+        return "profile_challenge_detected"
+
+    if any(m in combined for m in _CHALLENGE_CONTENT_MARKERS):
+        return "profile_challenge_detected"
+
+    if any(m in combined for m in _UNAVAILABLE_CONTENT_MARKERS):
+        return "profile_unavailable"
+
+    return "profile_timeout_dom_incomplete"
+
+
+async def _save_debug_snapshot(page: Page, url: str, category: str) -> None:
+    """Save screenshot + partial HTML to SCRAPING_DEBUG_DIR on failure.
+
+    Only runs when env var SCRAPING_DEBUG=1 to avoid filling RPi disk.
+
+    Args:
+        page: Current Playwright page.
+        url: Requested profile URL (used to build filename).
+        category: Classified error category (used as filename prefix).
+    """
+    debug_dir = os.environ.get("SCRAPING_DEBUG_DIR", "/data/debug")
+    os.makedirs(debug_dir, exist_ok=True)
+
+    slug = re.sub(r"[^a-z0-9]", "_", url.lower())[-40:]
+    ts = datetime.now().strftime("%H%M%S")
+    prefix = f"{debug_dir}/{ts}_{category}_{slug}"
+
+    try:
+        await page.screenshot(path=f"{prefix}.png", full_page=False)
+    except Exception as e:
+        logger.warning("debug_screenshot_failed", error=str(e))
+
+    try:
+        html = await page.content()
+        with open(f"{prefix}.html", "w", encoding="utf-8") as f:
+            f.write(html[:8000])  # first 8KB is enough for diagnosis
+    except Exception:
+        pass
+
+    logger.info("debug_snapshot_saved", prefix=prefix, category=category)
 
 
 async def _safe_inner_text(page: Page, selector: str) -> str | None:
@@ -181,42 +259,67 @@ async def _extract_connections_count(page: Page) -> int | None:
     return None
 
 
-@retry(
-    retry=retry_if_exception_type(ProfileScrapingError),
-    stop=stop_after_attempt(2),
-    wait=wait_exponential(multiplier=2, min=5, max=30),
-    reraise=True,
-)
 def _is_login_page(url: str) -> bool:
     """Return True if the current URL is a LinkedIn login/auth page."""
-    return any(marker in url for marker in ("/login", "/uas/login", "/checkpoint", "/authwall"))
+    return any(marker in url for marker in _LOGIN_URL_MARKERS)
 
 
 async def _wait_for_profile_ready(page: Page, url: str) -> None:
-    """Wait until the profile page is actually rendered (h1 visible) or raise.
+    """Wait until the profile page is rendered or raise a classified error.
 
     LinkedIn is a React SPA — domcontentloaded fires before React mounts.
-    We wait for the h1 (profile name) as a reliable render signal.
+    We wait for h1 as the render signal, then classify any failure precisely
+    so callers can act on the category (retry, pause, abort session…).
+
+    On failure, logs: final_url, page title, 300-char HTML preview.
+    If SCRAPING_DEBUG=1 also saves screenshot + full HTML to SCRAPING_DEBUG_DIR.
 
     Args:
         page: Playwright Page after goto().
-        url: The requested profile URL (used for error context).
+        url: The requested profile URL (for error context).
 
     Raises:
-        ProfileScrapingError: If session expired or page failed to render.
+        ProfileScrapingError: Prefixed with the classified error category.
     """
-    current_url = page.url
-    if _is_login_page(current_url):
-        raise ProfileScrapingError(f"session_expired: redirected to login instead of {url}")
+    # Fast-path: immediate redirect to login before h1 wait
+    if _is_login_page(page.url):
+        raise ProfileScrapingError(f"profile_redirected_to_login: {url} → {page.url}")
 
     try:
         await page.wait_for_selector("h1", timeout=15_000)
+        return  # success — h1 is present
     except Exception:
-        # h1 not found — may be a bot challenge or empty page
-        current_url = page.url
-        if _is_login_page(current_url):
-            raise ProfileScrapingError(f"session_expired: redirected to login instead of {url}")
-        raise ProfileScrapingError(f"profile_not_rendered: h1 never appeared for {url} (bot wall?)")
+        pass
+
+    # h1 timed out — gather diagnostic signals
+    final_url = page.url
+    try:
+        title = await page.title()
+    except Exception:
+        title = ""
+    try:
+        html_snippet = (await page.content())[:3000]
+    except Exception:
+        html_snippet = ""
+
+    category = _classify_profile_error(final_url, title, html_snippet)
+
+    logger.warning(
+        "profile_load_failed",
+        url=url,
+        final_url=final_url,
+        title=title,
+        category=category,
+        # First 300 chars of HTML — enough to see login form / challenge heading
+        html_preview=html_snippet[:300].replace("\n", " "),
+    )
+
+    if os.environ.get("SCRAPING_DEBUG", "0") == "1":
+        await _save_debug_snapshot(page, url, category)
+
+    raise ProfileScrapingError(
+        f"{category}: {url} (final_url={final_url!r}, title={title!r})"
+    )
 
 
 async def scrape_profile(page: Page, linkedin_url: str) -> Profile:
