@@ -11,8 +11,7 @@ import structlog
 from playwright.async_api import ElementHandle, Page
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from agent.exceptions import LinkedInSessionExpiredError, PostSearchError
-
+from agent.exceptions import LinkedInAuthError, LinkedInSessionExpiredError, PostSearchError
 from models.post import Post
 from utils.anti_detection import simulate_human_scroll
 

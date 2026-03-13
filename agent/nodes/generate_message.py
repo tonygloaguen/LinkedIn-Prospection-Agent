@@ -7,7 +7,12 @@ from pathlib import Path
 
 import structlog
 
-from agent.exceptions import GeminiDailyQuotaError, LLMUnavailableError, MessageGenerationError, QuotaExceededException
+from agent.exceptions import (
+    GeminiDailyQuotaError,
+    LLMUnavailableError,
+    MessageGenerationError,
+    QuotaExceededException,
+)
 from agent.state import LinkedInProspectionState
 from models.profile import ScoredProfile
 from utils.llm_client import call_llm
@@ -119,7 +124,9 @@ def _template_message(profile: ScoredProfile) -> str:
     Returns:
         Formatted template message string (always within LinkedIn 280-char limit).
     """
-    category = profile.profile_category if profile.profile_category in _TEMPLATE_MESSAGES else "other"
+    category = (
+        profile.profile_category if profile.profile_category in _TEMPLATE_MESSAGES else "other"
+    )
     template = _TEMPLATE_MESSAGES[category]
     common_interest = _detect_common_interest(profile)
     msg = template.format(

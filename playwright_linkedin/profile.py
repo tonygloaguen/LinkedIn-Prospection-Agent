@@ -119,9 +119,10 @@ async def _extract_bio_js(page: Page) -> str | None:
                         el = parent;
                     }
                     if (el) {
-                        // Prefer aria-hidden=true spans (LinkedIn hides these from SR but they're visible)
+                        // Prefer aria-hidden=true spans (hidden from SR but visible)
                         const hiddenSpan = el.querySelector("span[aria-hidden='true']");
-                        if (hiddenSpan && hiddenSpan.innerText && hiddenSpan.innerText.trim().length > 10) {
+                        const txt = hiddenSpan && hiddenSpan.innerText;
+                        if (txt && txt.trim().length > 10) {
                             return hiddenSpan.innerText.trim();
                         }
                         // Fallback: any <p> or <span> with substantial text
@@ -206,9 +207,7 @@ async def _wait_for_profile_ready(page: Page, url: str) -> None:
     """
     current_url = page.url
     if _is_login_page(current_url):
-        raise ProfileScrapingError(
-            f"session_expired: redirected to login instead of {url}"
-        )
+        raise ProfileScrapingError(f"session_expired: redirected to login instead of {url}")
 
     try:
         await page.wait_for_selector("h1", timeout=15_000)
@@ -216,12 +215,8 @@ async def _wait_for_profile_ready(page: Page, url: str) -> None:
         # h1 not found — may be a bot challenge or empty page
         current_url = page.url
         if _is_login_page(current_url):
-            raise ProfileScrapingError(
-                f"session_expired: redirected to login instead of {url}"
-            )
-        raise ProfileScrapingError(
-            f"profile_not_rendered: h1 never appeared for {url} (bot wall?)"
-        )
+            raise ProfileScrapingError(f"session_expired: redirected to login instead of {url}")
+        raise ProfileScrapingError(f"profile_not_rendered: h1 never appeared for {url} (bot wall?)")
 
 
 async def scrape_profile(page: Page, linkedin_url: str) -> Profile:
