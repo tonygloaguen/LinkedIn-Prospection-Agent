@@ -286,7 +286,7 @@ async def _wait_for_profile_ready(page: Page, url: str) -> None:
         raise ProfileScrapingError(f"profile_redirected_to_login: {url} → {page.url}")
 
     try:
-        await page.wait_for_selector("h1", timeout=15_000)
+        await page.wait_for_selector("h1", timeout=25_000)
         return  # success — h1 is present
     except Exception:
         pass

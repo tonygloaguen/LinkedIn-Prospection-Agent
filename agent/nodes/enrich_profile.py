@@ -82,6 +82,29 @@ async def enrich_profile(
 
     check_activity_window()
 
+    # ── Warm-up: navigate to feed before visiting individual profiles ─────────
+    # After a heavy search session LinkedIn is suspicious of immediate profile
+    # visits.  A feed visit + random pause mimics natural browsing behaviour.
+    import random as _random
+    try:
+        _warmup_delay = _random.uniform(60, 120)
+        logger.info(
+            "enrich_warmup_pause",
+            seconds=round(_warmup_delay, 1),
+            hint="Cooling down after search phase before profile visits",
+        )
+        await page.wait_for_timeout(int(_warmup_delay * 1000))  # type: ignore[attr-defined]
+        await page.goto(  # type: ignore[attr-defined]
+            "https://www.linkedin.com/feed/",
+            timeout=30_000,
+            wait_until="domcontentloaded",
+        )
+        await page.wait_for_timeout(int(_random.uniform(5_000, 10_000)))  # type: ignore[attr-defined]
+        logger.info("enrich_warmup_done")
+    except Exception as _warmup_exc:
+        logger.warning("enrich_warmup_failed", error=str(_warmup_exc))
+    # ─────────────────────────────────────────────────────────────────────────
+
     enriched_profiles: list[Profile] = []
     errors = list(state["errors"])
     actions_count = state["actions_count"]
