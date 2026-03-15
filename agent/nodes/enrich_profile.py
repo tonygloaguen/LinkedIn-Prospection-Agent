@@ -163,7 +163,7 @@ async def enrich_profile(
                     consecutive_failures=_consecutive_failures,
                     total_attempts=_total_attempts,
                     total_successes=_total_successes,
-                    hint="LinkedIn likely blocking all profile requests — skipping remaining profiles",
+                    hint="LinkedIn likely blocking all profile requests — skipping remaining",
                 )
                 _circuit_breaker_logged = True
             enriched_profiles.append(profile)
