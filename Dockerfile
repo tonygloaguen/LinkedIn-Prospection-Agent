@@ -67,7 +67,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy virtualenv from builder
 COPY --from=builder /app/.venv /app/.venv
 
-RUN /app/.venv/bin/pip install playwright-stealth
+# playwright-stealth and setuptools are installed by poetry (see pyproject.toml).
+# pkg_resources polyfill in browser.py handles the setuptools >= 71 API change.
 
 ENV PATH="/app/.venv/bin:$PATH"
 

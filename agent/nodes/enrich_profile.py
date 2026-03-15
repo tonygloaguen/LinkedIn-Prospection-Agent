@@ -124,6 +124,7 @@ async def enrich_profile(
     _consecutive_failures = 0
     _total_attempts = 0
     _total_successes = 0
+    _circuit_breaker_logged = False  # log circuit-breaker warning only once
     # After this many consecutive failures we pause for a longer delay.
     _consecutive_fail_pause_threshold = int(
         __import__("os").environ.get("ENRICH_PAUSE_AFTER_FAILURES", "5")
@@ -156,13 +157,15 @@ async def enrich_profile(
 
         # ── Circuit breaker: stop if bot wall is detected ────────────────────
         if _consecutive_failures >= _consecutive_fail_abort_threshold:
-            logger.warning(
-                "enrich_circuit_breaker_open",
-                consecutive_failures=_consecutive_failures,
-                total_attempts=_total_attempts,
-                total_successes=_total_successes,
-                hint="LinkedIn likely blocking all profile requests — skipping remaining profiles",
-            )
+            if not _circuit_breaker_logged:
+                logger.warning(
+                    "enrich_circuit_breaker_open",
+                    consecutive_failures=_consecutive_failures,
+                    total_attempts=_total_attempts,
+                    total_successes=_total_successes,
+                    hint="LinkedIn likely blocking all profile requests — skipping remaining",
+                )
+                _circuit_breaker_logged = True
             enriched_profiles.append(profile)
             continue
         # ─────────────────────────────────────────────────────────────────────

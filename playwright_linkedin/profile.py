@@ -271,7 +271,7 @@ def _is_login_page(url: str) -> bool:
     return any(marker in url for marker in _LOGIN_URL_MARKERS)
 
 
-async def _wait_for_profile_ready(page: Page, url: str) -> None:
+async def _wait_for_profile_ready(page: Page, url: str) -> bool:
     """Wait until the profile page is rendered or raise a classified error.
 
     LinkedIn is a React SPA — domcontentloaded fires before React mounts.
@@ -285,8 +285,12 @@ async def _wait_for_profile_ready(page: Page, url: str) -> None:
         page: Playwright Page after goto().
         url: The requested profile URL (for error context).
 
+    Returns:
+        True if fully loaded (h1 rendered), False if partial load (name extractable
+        from <title> but React content did not mount — typically a soft bot wall).
+
     Raises:
-        ProfileScrapingError: Prefixed with the classified error category.
+        ProfileScrapingError: On login redirect, challenge, or unavailable profile.
     """
     # Fast-path: immediate redirect to login before h1 wait
     if _is_login_page(page.url):
@@ -294,7 +298,7 @@ async def _wait_for_profile_ready(page: Page, url: str) -> None:
 
     try:
         await page.wait_for_selector("h1", timeout=25_000)
-        return  # success — h1 is present
+        return True  # fully loaded — h1 is present
     except Exception:
         pass
 
@@ -324,6 +328,22 @@ async def _wait_for_profile_ready(page: Page, url: str) -> None:
     if os.environ.get("SCRAPING_DEBUG", "0") == "1":
         await _save_debug_snapshot(page, url, category)
 
+    # Partial-load recovery: LinkedIn sometimes serves a valid shell (correct title,
+    # no React hydration) as a soft bot-wall.  If the title encodes the profile name
+    # we can still extract it and create a partial Profile rather than failing entirely.
+    if category == "profile_timeout_dom_incomplete":
+        title_match = re.match(r"^([^|\-]{2,60})\s*[|\-]", title)
+        if title_match:
+            candidate = title_match.group(1).strip()
+            if candidate and "linkedin" not in candidate.lower():
+                logger.warning(
+                    "profile_partial_load_allowed",
+                    url=url,
+                    name_from_title=candidate,
+                    hint="h1 not rendered but title looks valid — proceeding with partial scrape",
+                )
+                return False  # partial load — caller will extract name from title
+
     raise ProfileScrapingError(f"{category}: {url} (final_url={final_url!r}, title={title!r})")
 
 
@@ -346,11 +366,12 @@ async def scrape_profile(page: Page, linkedin_url: str) -> Profile:
 
     try:
         await page.goto(linkedin_url, timeout=_TIMEOUT, wait_until="domcontentloaded")
-        await _wait_for_profile_ready(page, linkedin_url)
-        # Scroll enough to trigger lazy-loaded sections (About, Experience)
-        await simulate_human_scroll(page, scroll_count=4)
-        # Extra pause after scroll so React renders lazy sections
-        await page.wait_for_timeout(1_500)
+        fully_loaded = await _wait_for_profile_ready(page, linkedin_url)
+        if fully_loaded:
+            # Scroll enough to trigger lazy-loaded sections (About, Experience)
+            await simulate_human_scroll(page, scroll_count=4)
+            # Extra pause after scroll so React renders lazy sections
+            await page.wait_for_timeout(1_500)
     except ProfileScrapingError:
         raise
     except Exception as exc:

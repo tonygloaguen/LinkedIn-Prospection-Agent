@@ -161,7 +161,7 @@ async def call_llm(prompt: str) -> str:
     except _GeminiDailyQuotaError as primary_exc:
         # Daily quota exhausted on primary model — try fallback model
         primary_model = os.environ.get("LLM_MODEL", "gemini-2.0-flash")
-        fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-1.5-flash")
+        fallback_model = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash-lite")
 
         if fallback_model and fallback_model != primary_model:
             logger.warning(
