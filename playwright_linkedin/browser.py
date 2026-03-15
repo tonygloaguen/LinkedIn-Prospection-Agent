@@ -67,6 +67,37 @@ async def _load_cookies(context: BrowserContext) -> bool:
         return False
 
 
+def _ensure_pkg_resources() -> None:
+    """Polyfill pkg_resources if missing (setuptools >= 71 no longer places it in site-packages).
+
+    playwright-stealth uses pkg_resources.resource_string() to read its own JS files.
+    The files are present on disk inside the package directory — this polyfill bridges
+    the gap without downgrading setuptools or changing the Docker image.
+    """
+    import importlib
+    import sys
+    import types
+
+    if "pkg_resources" in sys.modules:
+        return  # already importable — nothing to do
+
+    try:
+        import pkg_resources  # noqa: F401  (may succeed in some environments)
+        return
+    except ImportError:
+        pass
+
+    _mod = types.ModuleType("pkg_resources")
+
+    def _resource_string(package: str, resource_name: str) -> bytes:
+        pkg = importlib.import_module(package)
+        pkg_dir = Path(pkg.__file__).parent  # type: ignore[arg-type]
+        return (pkg_dir / resource_name).read_bytes()
+
+    _mod.resource_string = _resource_string  # type: ignore[attr-defined]
+    sys.modules["pkg_resources"] = _mod
+
+
 def _apply_stealth_to_context(context: BrowserContext) -> None:
     """Register a page event handler so stealth patches are applied to every new page.
 
@@ -77,6 +108,7 @@ def _apply_stealth_to_context(context: BrowserContext) -> None:
         context: Active Playwright browser context.
     """
     try:
+        _ensure_pkg_resources()
         from playwright_stealth import stealth_async  # type: ignore[import]
 
         def _on_page(page: Page) -> None:
