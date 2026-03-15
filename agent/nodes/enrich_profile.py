@@ -86,6 +86,7 @@ async def enrich_profile(
     # After a heavy search session LinkedIn is suspicious of immediate profile
     # visits.  A feed visit + random pause mimics natural browsing behaviour.
     import random as _random
+
     try:
         _warmup_delay = _random.uniform(60, 120)
         logger.info(
@@ -124,11 +125,11 @@ async def enrich_profile(
     _total_attempts = 0
     _total_successes = 0
     # After this many consecutive failures we pause for a longer delay.
-    _CONSECUTIVE_FAIL_PAUSE_THRESHOLD = int(
+    _consecutive_fail_pause_threshold = int(
         __import__("os").environ.get("ENRICH_PAUSE_AFTER_FAILURES", "5")
     )
     # After this many consecutive failures we give up enriching (circuit breaker).
-    _CONSECUTIVE_FAIL_ABORT_THRESHOLD = int(
+    _consecutive_fail_abort_threshold = int(
         __import__("os").environ.get("ENRICH_ABORT_AFTER_FAILURES", "10")
     )
     # ─────────────────────────────────────────────────────────────────────────
@@ -154,7 +155,7 @@ async def enrich_profile(
             continue
 
         # ── Circuit breaker: stop if bot wall is detected ────────────────────
-        if _consecutive_failures >= _CONSECUTIVE_FAIL_ABORT_THRESHOLD:
+        if _consecutive_failures >= _consecutive_fail_abort_threshold:
             logger.warning(
                 "enrich_circuit_breaker_open",
                 consecutive_failures=_consecutive_failures,
@@ -203,8 +204,10 @@ async def enrich_profile(
             _consecutive_failures += 1
             errors.append(f"enrich:{profile.linkedin_url}: {exc}")
 
-            # Extract the classified category from the error prefix (e.g. "profile_challenge_detected")
-            error_category = error_str.split(":")[0] if ":" in error_str else "profile_scraping_error"
+            # Extract the classified category from the error prefix
+            error_category = (
+                error_str.split(":")[0] if ":" in error_str else "profile_scraping_error"
+            )
 
             if _is_page_crash(error_str):
                 logger.error(
@@ -246,11 +249,12 @@ async def enrich_profile(
             )
 
             # ── Pause heuristic: slow down after a burst of consecutive failures ──
-            if (
-                _consecutive_failures == _CONSECUTIVE_FAIL_PAUSE_THRESHOLD
-                and error_category in ("profile_challenge_detected", "profile_timeout_dom_incomplete")
+            if _consecutive_failures == _consecutive_fail_pause_threshold and error_category in (
+                "profile_challenge_detected",
+                "profile_timeout_dom_incomplete",
             ):
                 import random
+
                 pause_s = random.uniform(30, 60)
                 logger.warning(
                     "enrich_consecutive_failures_pause",
@@ -258,7 +262,7 @@ async def enrich_profile(
                     pause_seconds=round(pause_s, 1),
                     hint="Likely bot-wall — pausing before continuing",
                 )
-                await current_page.wait_for_timeout(int(pause_s * 1000))
+                await current_page.wait_for_timeout(int(pause_s * 1000))  # type: ignore[attr-defined]
             # ─────────────────────────────────────────────────────────────────
 
         except Exception as exc:
@@ -279,7 +283,7 @@ async def enrich_profile(
         enriched=_total_successes,
         attempts=_total_attempts,
         success_rate=f"{_total_successes}/{_total_attempts}" if _total_attempts else "0/0",
-        circuit_breaker_triggered=_consecutive_failures >= _CONSECUTIVE_FAIL_ABORT_THRESHOLD,
+        circuit_breaker_triggered=_consecutive_failures >= _consecutive_fail_abort_threshold,
     )
     # ─────────────────────────────────────────────────────────────────────────
 

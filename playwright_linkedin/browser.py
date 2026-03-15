@@ -137,9 +137,16 @@ async def get_browser_context(playwright: Playwright) -> tuple[Browser, BrowserC
     # Injected into every new page before any script runs.
     await context.add_init_script("""
         (() => {
-            try { Object.defineProperty(navigator, 'webdriver', {get: () => undefined}); } catch(e) {}
-            try { Object.defineProperty(navigator, 'languages', {get: () => ['fr-FR', 'fr', 'en-US', 'en']}); } catch(e) {}
-            try { Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]}); } catch(e) {}
+            try {
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            } catch(e) {}
+            try {
+                Object.defineProperty(navigator, 'languages',
+                    {get: () => ['fr-FR', 'fr', 'en-US', 'en']});
+            } catch(e) {}
+            try {
+                Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+            } catch(e) {}
             try {
                 const orig = navigator.permissions.query.bind(navigator.permissions);
                 navigator.permissions.query = (p) =>
