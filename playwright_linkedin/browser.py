@@ -83,6 +83,7 @@ def _ensure_pkg_resources() -> None:
 
     try:
         import pkg_resources  # noqa: F401  (may succeed in some environments)
+
         return
     except ImportError:
         pass
