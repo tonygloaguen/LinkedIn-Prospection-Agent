@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 
 import structlog
 from playwright.async_api import Page
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from agent.exceptions import ProfileScrapingError
 from models.profile import Profile
@@ -23,14 +22,22 @@ _TIMEOUT = 60_000
 _LOGIN_URL_MARKERS = ("/login", "/uas/login", "/checkpoint", "/authwall")
 _CHALLENGE_URL_MARKERS = ("/challenge",)
 _CHALLENGE_CONTENT_MARKERS = (
-    "security check", "unusual activity", "verify you're a human",
-    "captcha", "vérification de sécurité", "let's do a quick",
-    "we noticed unusual", "identity verification",
+    "security check",
+    "unusual activity",
+    "verify you're a human",
+    "captcha",
+    "vérification de sécurité",
+    "let's do a quick",
+    "we noticed unusual",
+    "identity verification",
 )
 _UNAVAILABLE_CONTENT_MARKERS = (
-    "page not found", "this profile is not available",
-    "this linkedin page isn't available", "profil introuvable",
-    "n'est pas disponible", "no longer available",
+    "page not found",
+    "this profile is not available",
+    "this linkedin page isn't available",
+    "profil introuvable",
+    "n'est pas disponible",
+    "no longer available",
 )
 
 
@@ -286,7 +293,7 @@ async def _wait_for_profile_ready(page: Page, url: str) -> None:
         raise ProfileScrapingError(f"profile_redirected_to_login: {url} → {page.url}")
 
     try:
-        await page.wait_for_selector("h1", timeout=15_000)
+        await page.wait_for_selector("h1", timeout=25_000)
         return  # success — h1 is present
     except Exception:
         pass
@@ -317,9 +324,7 @@ async def _wait_for_profile_ready(page: Page, url: str) -> None:
     if os.environ.get("SCRAPING_DEBUG", "0") == "1":
         await _save_debug_snapshot(page, url, category)
 
-    raise ProfileScrapingError(
-        f"{category}: {url} (final_url={final_url!r}, title={title!r})"
-    )
+    raise ProfileScrapingError(f"{category}: {url} (final_url={final_url!r}, title={title!r})")
 
 
 async def scrape_profile(page: Page, linkedin_url: str) -> Profile:

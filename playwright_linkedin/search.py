@@ -263,7 +263,7 @@ async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
         return await asyncio.wait_for(
             _search_posts_for_keyword(page, keyword), timeout=_KEYWORD_TIMEOUT
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error(
             "keyword_search_timeout",
             keyword=keyword,
@@ -418,7 +418,7 @@ async def _search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
                 )
             )
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "post_extraction_timeout",
                 keyword=keyword,

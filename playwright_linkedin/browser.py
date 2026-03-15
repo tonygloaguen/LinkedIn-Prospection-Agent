@@ -133,6 +133,30 @@ async def get_browser_context(playwright: Playwright) -> tuple[Browser, BrowserC
     # Register stealth on context so every new_page() gets it automatically
     _apply_stealth_to_context(context)
 
+    # Inline webdriver masking — active even when playwright-stealth is absent.
+    # Injected into every new page before any script runs.
+    await context.add_init_script("""
+        (() => {
+            try {
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            } catch(e) {}
+            try {
+                Object.defineProperty(navigator, 'languages',
+                    {get: () => ['fr-FR', 'fr', 'en-US', 'en']});
+            } catch(e) {}
+            try {
+                Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+            } catch(e) {}
+            try {
+                const orig = navigator.permissions.query.bind(navigator.permissions);
+                navigator.permissions.query = (p) =>
+                    p.name === 'notifications'
+                        ? Promise.resolve({state: Notification.permission})
+                        : orig(p);
+            } catch(e) {}
+        })();
+    """)
+
     await _load_cookies(context)
 
     logger.info(
