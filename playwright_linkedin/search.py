@@ -400,6 +400,11 @@ async def _search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
 
     for element in post_elements[:_MAX_POSTS_PER_KEYWORD]:
         try:
+            # Scroll card into viewport to trigger LinkedIn's IntersectionObserver
+            # (placeholder divs stay empty until they enter the visible area).
+            await element.scroll_into_view_if_needed(timeout=3_000)
+            await page.wait_for_timeout(600)
+
             author_url = await asyncio.wait_for(
                 _extract_post_author_url(element), timeout=_ELEMENT_EXTRACT_TIMEOUT
             )
