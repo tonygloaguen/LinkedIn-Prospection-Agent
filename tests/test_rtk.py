@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
+from _pytest.monkeypatch import MonkeyPatch
 
 from utils.rtk import _python_fallback_gain, rtk_gain, rtk_gain_file
 
@@ -17,7 +19,7 @@ def _metrics(
     profiles: int = 0,
     invitations: int = 0,
     errors: int = 0,
-) -> dict:
+) -> dict[str, Any]:
     """Build a minimal run_metrics dict for tests."""
     return {
         "posts_found": posts,
@@ -82,38 +84,38 @@ SAMPLE_JSON_LOGS = "\n".join(
 
 
 class TestPythonFallbackGain:
-    def test_keeps_warning_lines(self):
+    def test_keeps_warning_lines(self) -> None:
         result = _python_fallback_gain(SAMPLE_JSON_LOGS)
         assert "post_skipped_missing_author" in result
 
-    def test_keeps_high_signal_events(self):
+    def test_keeps_high_signal_events(self) -> None:
         result = _python_fallback_gain(SAMPLE_JSON_LOGS)
         assert "node_start" in result
         assert "run_complete" in result
 
-    def test_drops_debug_lines(self):
+    def test_drops_debug_lines(self) -> None:
         result = _python_fallback_gain(SAMPLE_JSON_LOGS)
         assert "debug_info_noise" not in result
 
-    def test_drops_low_signal_info_lines(self):
+    def test_drops_low_signal_info_lines(self) -> None:
         result = _python_fallback_gain(SAMPLE_JSON_LOGS)
         assert "some_low_signal_event" not in result
 
-    def test_keeps_non_json_lines(self):
+    def test_keeps_non_json_lines(self) -> None:
         mixed = "Starting LinkedIn Prospection Agent\n" + SAMPLE_JSON_LOGS
         result = _python_fallback_gain(mixed)
         assert "Starting LinkedIn Prospection Agent" in result
 
-    def test_returns_original_if_nothing_kept(self):
+    def test_returns_original_if_nothing_kept(self) -> None:
         """When no line matches, return original to avoid silent data loss."""
         only_noise = json.dumps({"event": "boring_debug", "level": "debug", "detail": "x"})
         result = _python_fallback_gain(only_noise)
         assert result == only_noise
 
-    def test_empty_string(self):
+    def test_empty_string(self) -> None:
         assert _python_fallback_gain("") == ""
 
-    def test_whitespace_only(self):
+    def test_whitespace_only(self) -> None:
         result = _python_fallback_gain("   \n\n  ")
         # All lines empty — nothing kept, return original
         assert result.strip() == ""
@@ -123,21 +125,21 @@ class TestPythonFallbackGain:
 
 
 class TestRtkGain:
-    def test_uses_python_fallback_when_rtk_disabled(self, monkeypatch):
+    def test_uses_python_fallback_when_rtk_disabled(self, monkeypatch: MonkeyPatch) -> None:
         monkeypatch.setenv("RTK_ENABLED", "false")
         result = rtk_gain(SAMPLE_JSON_LOGS)
         # Python fallback should have filtered the logs
         assert "run_complete" in result
         assert "boring_debug" not in result
 
-    def test_uses_python_fallback_when_rtk_not_found(self, monkeypatch):
+    def test_uses_python_fallback_when_rtk_not_found(self, monkeypatch: MonkeyPatch) -> None:
         monkeypatch.setenv("RTK_ENABLED", "true")
         monkeypatch.delenv("RTK_BIN", raising=False)
         with patch("utils.rtk.shutil.which", return_value=None):
             result = rtk_gain(SAMPLE_JSON_LOGS)
         assert "run_complete" in result
 
-    def test_uses_rtk_when_available(self, monkeypatch, tmp_path):
+    def test_uses_rtk_when_available(self, monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
         """RTK binary found → subprocess called → output returned."""
         fake_rtk = tmp_path / "rtk"
         fake_rtk.write_text("#!/bin/sh\ncat\n")
@@ -149,7 +151,7 @@ class TestRtkGain:
         result = rtk_gain("hello world")
         assert result == "hello world"
 
-    def test_falls_back_on_rtk_failure(self, monkeypatch, tmp_path):
+    def test_falls_back_on_rtk_failure(self, monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
         """RTK exits non-zero → Python fallback used."""
         fake_rtk = tmp_path / "rtk"
         fake_rtk.write_text("#!/bin/sh\nexit 1\n")
@@ -162,7 +164,7 @@ class TestRtkGain:
         # Should fall back to Python filter
         assert "run_complete" in result
 
-    def test_empty_input_returns_empty(self, monkeypatch):
+    def test_empty_input_returns_empty(self, monkeypatch: MonkeyPatch) -> None:
         monkeypatch.setenv("RTK_ENABLED", "false")
         assert rtk_gain("") == ""
         assert rtk_gain("   ") == ""
@@ -172,14 +174,14 @@ class TestRtkGain:
 
 
 class TestRtkGainFile:
-    def test_reads_and_filters_file(self, monkeypatch, tmp_path):
+    def test_reads_and_filters_file(self, monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("RTK_ENABLED", "false")  # use Python fallback
         log_file = tmp_path / "agent.log"
         log_file.write_text(SAMPLE_JSON_LOGS)
         result = rtk_gain_file(log_file)
         assert "run_complete" in result
 
-    def test_returns_empty_for_missing_file(self):
+    def test_returns_empty_for_missing_file(self) -> None:
         result = rtk_gain_file("/nonexistent/path/agent.log")
         assert result == ""
 
@@ -188,7 +190,7 @@ class TestRtkGainFile:
 
 
 class TestGenerateRunDigest:
-    def test_creates_digest_file(self, monkeypatch, tmp_path):
+    def test_creates_digest_file(self, monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("LOG_DIR", str(tmp_path))
         monkeypatch.setenv("RTK_ENABLED", "false")
 
@@ -209,7 +211,7 @@ class TestGenerateRunDigest:
         assert "METRICS" in content
         assert "Posts found" in content
 
-    def test_digest_includes_errors(self, monkeypatch, tmp_path):
+    def test_digest_includes_errors(self, monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("LOG_DIR", str(tmp_path))
         monkeypatch.setenv("RTK_ENABLED", "false")
 
@@ -226,7 +228,7 @@ class TestGenerateRunDigest:
         assert "Error A" in content
         assert "Error B" in content
 
-    def test_status_empty_when_no_posts(self, monkeypatch, tmp_path):
+    def test_status_empty_when_no_posts(self, monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
         monkeypatch.setenv("LOG_DIR", str(tmp_path))
         monkeypatch.setenv("RTK_ENABLED", "false")
 
@@ -242,7 +244,9 @@ class TestGenerateRunDigest:
         content = Path(path).read_text()
         assert "EMPTY" in content
 
-    def test_status_success_when_invitations_sent(self, monkeypatch, tmp_path):
+    def test_status_success_when_invitations_sent(
+        self, monkeypatch: MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setenv("LOG_DIR", str(tmp_path))
         monkeypatch.setenv("RTK_ENABLED", "false")
 
@@ -258,7 +262,7 @@ class TestGenerateRunDigest:
         content = Path(path).read_text()
         assert "SUCCESS" in content
 
-    def test_returns_none_on_unwritable_dir(self, monkeypatch, tmp_path):
+    def test_returns_none_on_unwritable_dir(self, monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
         """Digest returns None when the log dir cannot be written to."""
         unwritable = tmp_path / "noperm"
         unwritable.mkdir()
@@ -282,7 +286,7 @@ class TestGenerateRunDigest:
         # Restore permissions so tmp_path cleanup works
         unwritable.chmod(0o755)
 
-    def test_rtk_section_included_on_error(self, monkeypatch, tmp_path):
+    def test_rtk_section_included_on_error(self, monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
         """RTK section appended when errors > 0."""
         monkeypatch.setenv("LOG_DIR", str(tmp_path))
         monkeypatch.setenv("RTK_ENABLED", "false")
@@ -302,7 +306,9 @@ class TestGenerateRunDigest:
         content = Path(path).read_text()
         assert "LOG SUMMARY" in content
 
-    def test_rtk_section_omitted_on_clean_run(self, monkeypatch, tmp_path):
+    def test_rtk_section_omitted_on_clean_run(
+        self, monkeypatch: MonkeyPatch, tmp_path: Path
+    ) -> None:
         """RTK section NOT appended when run is clean and posts found."""
         monkeypatch.setenv("LOG_DIR", str(tmp_path))
         monkeypatch.setenv("RTK_ENABLED", "false")
