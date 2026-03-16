@@ -32,6 +32,7 @@ from __future__ import annotations
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -46,7 +47,7 @@ _MAX_SUMMARY_LINES = 150
 def generate_run_digest(
     run_id: str,
     log_file: str | None,
-    metrics: dict,
+    metrics: dict[str, Any],
     errors: list[str],
 ) -> str | None:
     """Generate a post-run RTK digest and write it to the log directory.
@@ -112,7 +113,7 @@ def _build_header(run_id: str) -> list[str]:
     ]
 
 
-def _build_metrics_section(metrics: dict) -> list[str]:
+def _build_metrics_section(metrics: dict[str, Any]) -> list[str]:
     duration = _compute_duration(
         str(metrics.get("start_time", "")),
         str(metrics.get("end_time", "")),
@@ -130,7 +131,7 @@ def _build_metrics_section(metrics: dict) -> list[str]:
     ]
 
 
-def _build_status_section(metrics: dict) -> list[str]:
+def _build_status_section(metrics: dict[str, Any]) -> list[str]:
     status = _assess_status(metrics)
     return [f"STATUS: {status}", ""]
 
@@ -170,7 +171,7 @@ def _build_rtk_section(log_file: str) -> list[str]:
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _assess_status(metrics: dict) -> str:
+def _assess_status(metrics: dict[str, Any]) -> str:
     """Return a human-readable status string based on run metrics."""
     errors = metrics.get("errors_count", 0)
     posts = metrics.get("posts_found", 0)
