@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import UTC, datetime
 
@@ -61,6 +62,22 @@ async def log_action(
 
     if state["errors"]:
         logger.warning("run_errors", count=len(state["errors"]), errors=state["errors"][:5])
+
+    # ── RTK post-run digest ────────────────────────────────────────────────────
+    # Generates /logs/digest_<run_id_short>.txt with metrics + RTK-filtered logs.
+    # Runs only when RTK_ENABLED is not "false" (default: enabled).
+    # Never raises — failures are logged as warnings and ignored.
+    try:
+        from utils.diagnose import generate_run_digest
+
+        generate_run_digest(
+            run_id=run_id,
+            log_file=os.environ.get("LOG_FILE"),
+            metrics=metrics,
+            errors=state["errors"],
+        )
+    except Exception as exc:
+        logger.warning("run_digest_skipped", error=str(exc))
 
     return {
         **state,

@@ -206,7 +206,11 @@ async def _extract_post_snippet(post_element: ElementHandle) -> str | None:
     return None
 
 
-async def _save_debug_snapshot(page: Page, keyword: str) -> None:
+async def _save_debug_snapshot(
+    page: Page,
+    keyword: str,
+    first_card: ElementHandle | None = None,
+) -> None:
     """Save HTML + screenshot to /logs for DOM diagnosis (once per run)."""
     global _debug_snapshot_saved
     if _debug_snapshot_saved:
@@ -229,6 +233,20 @@ async def _save_debug_snapshot(page: Page, keyword: str) -> None:
             screenshot_path=f"{base}.png",
             hint="Inspect HTML to find the correct CSS selector for post cards",
         )
+        # Dump inner HTML of the first card to quickly diagnose selector mismatches
+        if first_card:
+            try:
+                card_html = await first_card.inner_html()
+                with open(f"{base}_card0.html", "w", encoding="utf-8") as fh:
+                    fh.write(card_html)
+                logger.warning(
+                    "debug_card_html_saved",
+                    keyword=keyword,
+                    card_html_path=f"{base}_card0.html",
+                    hint="Inspect card HTML to find correct author/snippet/url selectors",
+                )
+            except Exception:
+                pass
     except Exception as exc:
         logger.warning("debug_snapshot_failed", keyword=keyword, error=str(exc))
 
@@ -375,6 +393,8 @@ async def _search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
         )
         return posts
 
+    first_card = post_elements[0]
+
     # ── 6. Extract data from each card ────────────────────────────────────────
     now = datetime.now(UTC).isoformat()
 
@@ -391,10 +411,11 @@ async def _search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
             )
 
             if not author_url:
-                logger.debug(
+                logger.warning(
                     "post_skipped_missing_author",
                     keyword=keyword,
                     has_url=post_url is not None,
+                    has_snippet=snippet is not None,
                 )
                 continue
 
@@ -432,6 +453,16 @@ async def _search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
                 selector=active_selector,
                 error=str(exc),
             )
+
+    if not posts and post_elements:
+        await _save_debug_snapshot(page, keyword, first_card=first_card)
+        logger.warning(
+            "cards_found_but_no_posts_extracted",
+            keyword=keyword,
+            cards_found=len(post_elements),
+            active_selector=active_selector,
+            hint="Selectors inside card may no longer match LinkedIn DOM",
+        )
 
     logger.info(
         "search_posts_done",

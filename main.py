@@ -252,5 +252,52 @@ def stats() -> None:
     asyncio.run(_show_stats())
 
 
+@app.command()
+def diagnose(
+    log_file: Annotated[
+        str | None,
+        typer.Option("--log-file", "-l", help="Log file to analyse (default: LOG_FILE env var)"),
+    ] = None,
+    out: Annotated[
+        str | None,
+        typer.Option("--out", "-o", help="Write digest to this file instead of stdout"),
+    ] = None,
+) -> None:
+    """Analyse a run log with RTK and print a filtered summary.
+
+    Reads the log file produced by a previous run and passes it through
+    ``rtk gain`` (or the built-in Python fallback if RTK is unavailable).
+    Useful for post-hoc diagnosis without re-running the full pipeline.
+
+    Examples:
+
+        python main.py diagnose
+        python main.py diagnose --log-file /logs/agent.log
+        python main.py diagnose --log-file /logs/agent.log --out /logs/summary.txt
+    """
+    _load_env()
+    _setup_logging(os.environ.get("LOG_LEVEL", "INFO"))
+
+    from utils.rtk import rtk_gain_file
+
+    target = log_file or os.environ.get("LOG_FILE", "./logs/agent.log")
+    if not Path(target).exists():
+        typer.echo(f"No log file found at {target}", err=True)
+        raise typer.Exit(1)
+
+    summary = rtk_gain_file(target)
+    if not summary:
+        typer.echo("No output from RTK / fallback filter.", err=True)
+        raise typer.Exit(1)
+
+    if out:
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        Path(out).write_text(summary, encoding="utf-8")
+        typer.echo(f"Summary written to {out}")
+    else:
+        typer.echo(f"\n=== RTK Analysis: {target} ===\n")
+        typer.echo(summary)
+
+
 if __name__ == "__main__":
     app()
