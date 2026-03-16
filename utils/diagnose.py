@@ -161,8 +161,7 @@ def _build_rtk_section(log_file: str) -> list[str]:
     lines.extend(summary_lines[:_MAX_SUMMARY_LINES])
     if truncated:
         lines.append(
-            f"  ... ({len(summary_lines) - _MAX_SUMMARY_LINES} lines truncated"
-            f" — see full log file)"
+            f"  ... ({len(summary_lines) - _MAX_SUMMARY_LINES} lines truncated — see full log file)"
         )
     lines.append("")
     return lines
