@@ -10,6 +10,9 @@ services:
       - agent-data:/data          # SQLite DB + session cookies
       - agent-logs:/logs          # Structured logs + debug screenshots
       - ./.env:/app/.env:ro       # LinkedIn credentials (read-only)
+      # RTK binary mounted from host (read-only).
+      # Comment out if rtk is not installed on the host.
+      - /home/gloaguen/.cargo/bin/rtk:/usr/local/bin/rtk:ro
 
     # ── Environment ────────────────────────────────────────────────────────
     env_file:
@@ -18,7 +21,12 @@ services:
       DB_PATH: /data/linkedin.db
       SESSION_PATH: /data/session.json
       LOG_FILE: /logs/agent.log
+      LOG_DIR: /logs
       LOG_LEVEL: INFO
+      # RTK — set RTK_ENABLED=false to disable summarization
+      RTK_ENABLED: "true"
+      RTK_BIN: /usr/local/bin/rtk
+      RTK_TIMEOUT: "30"
 
     # ── Resources (RPi 4 4GB — leave headroom for FacturX container) ───────
     deploy:
