@@ -119,6 +119,18 @@ _ARTIFACT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# ── SDUI source-level patterns ─────────────────────────────────────────────
+# LinkedIn's SDUI embeds all page data as JSON in the raw HTML source.
+# These regexes parse author/post URLs directly from the source when the DOM
+# is still composed of empty placeholder divs (React not yet hydrated).
+
+# Matches /in/<slug> profile paths — stops at quote, slash, backslash, or ?
+_SDUI_AUTHOR_RE = re.compile(r'(?:https?://(?:www\.)?linkedin\.com)?(/in/[\w\-%]+)(?=[/"\\?])')
+# Matches /posts/<id> or /pulse/<slug> post paths
+_SDUI_POST_URL_RE = re.compile(
+    r'(?:https?://(?:www\.)?linkedin\.com)?(/(?:posts|pulse)/[\w\-%./]+)(?=[/"\\?])'
+)
+
 
 def _build_search_url(keyword: str) -> str:
     """Build the LinkedIn content search URL for a keyword."""
@@ -273,6 +285,83 @@ async def _find_post_elements(page: Page, keyword: str) -> tuple[list[ElementHan
             )
             return elements, sel
     return [], ""
+
+
+async def _extract_posts_from_html_source(
+    page: Page,
+    keyword: str,
+    seen_urls: set[str],
+    now: str,
+) -> list[Post]:
+    """Fallback: extract post data directly from the raw page HTML source.
+
+    LinkedIn's SDUI (Server-Driven UI) embeds all profile and post data as JSON
+    in the raw HTML before React hydrates the DOM.  This function bypasses DOM
+    selectors entirely and mines the HTML source with regex when the standard
+    DOM extraction yields 0 posts despite finding card containers.
+
+    Args:
+        page: Playwright Page with search results loaded.
+        keyword: Search keyword (for Post metadata and logging).
+        seen_urls: Mutable set of already-seen post URLs (updated in-place).
+        now: ISO timestamp string for Post.found_at.
+
+    Returns:
+        List of Post objects extracted from the HTML source.
+    """
+    try:
+        html = await page.content()
+    except Exception as exc:
+        logger.warning("sdui_html_fetch_failed", keyword=keyword, error=str(exc))
+        return []
+
+    # ── Collect unique author profile URLs ────────────────────────────────
+    author_urls: list[str] = []
+    seen_authors: set[str] = set()
+    for m in _SDUI_AUTHOR_RE.finditer(html):
+        path = m.group(1).rstrip("/")
+        full = f"https://www.linkedin.com{path}"
+        if full not in seen_authors:
+            seen_authors.add(full)
+            author_urls.append(full)
+
+    # ── Collect unique post URLs (best-effort) ────────────────────────────
+    post_url_list: list[str] = []
+    seen_post_urls: set[str] = set()
+    for m in _SDUI_POST_URL_RE.finditer(html):
+        path = m.group(1).rstrip("/")
+        full = f"https://www.linkedin.com{path}"
+        if full not in seen_post_urls:
+            seen_post_urls.add(full)
+            post_url_list.append(full)
+
+    logger.info(
+        "sdui_source_extraction",
+        keyword=keyword,
+        author_urls_found=len(author_urls),
+        post_urls_found=len(post_url_list),
+    )
+
+    posts: list[Post] = []
+    for i, author_url in enumerate(author_urls[:_MAX_POSTS_PER_KEYWORD]):
+        # Pair each author with a post URL by index (best-effort correlation).
+        # When there are fewer post URLs than authors, fall back to the author
+        # profile URL as the unique key (same fallback used in DOM extraction).
+        post_url = post_url_list[i] if i < len(post_url_list) else author_url
+        if post_url in seen_urls:
+            continue
+        seen_urls.add(post_url)
+        posts.append(
+            Post(
+                post_url=post_url,
+                author_linkedin_url=author_url,
+                content_snippet=None,
+                keywords_matched=[keyword],
+                found_at=now,
+            )
+        )
+
+    return posts
 
 
 async def search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
@@ -460,14 +549,24 @@ async def _search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
             )
 
     if not posts and post_elements:
-        await _save_debug_snapshot(page, keyword, first_card=first_card)
+        # DOM cards are likely still empty placeholders (SDUI not yet hydrated).
+        # Fall back to extracting data directly from the raw HTML source.
         logger.warning(
             "cards_found_but_no_posts_extracted",
             keyword=keyword,
             cards_found=len(post_elements),
             active_selector=active_selector,
-            hint="Selectors inside card may no longer match LinkedIn DOM",
+            hint="Falling back to HTML source extraction (SDUI placeholders)",
         )
+        posts = await _extract_posts_from_html_source(page, keyword, seen_urls, now)
+        if not posts:
+            # Source extraction also failed — save debug snapshot for diagnosis.
+            await _save_debug_snapshot(page, keyword, first_card=first_card)
+            logger.warning(
+                "sdui_fallback_also_empty",
+                keyword=keyword,
+                hint="Check debug snapshot; LinkedIn DOM structure may have changed again",
+            )
 
     logger.info(
         "search_posts_done",
