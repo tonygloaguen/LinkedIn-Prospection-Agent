@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import structlog
 from playwright.async_api import (
@@ -17,7 +18,6 @@ from playwright.async_api import (
     SetCookieParam,
     async_playwright,
 )
-from typing import Any
 
 from utils.anti_detection import get_random_user_agent, get_random_viewport
 
