@@ -2,7 +2,7 @@ name: linkedin-agent
 
 services:
   agent:
-    image: ghcr.io/tonygloaguen/linkedin-prospection-agent:main
+    image: ghcr.io/tonygloaguen/linkedin-prospection-agent:sha-4411261
     container_name: linkedin-agent
 
     # ── Volumes ────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ services:
 
   # ── Dashboard (optional — read-only stats viewer) ────────────────────────
   dashboard:
-    image: ghcr.io/tonygloaguen/linkedin-prospection-agent:main
+    image: ghcr.io/tonygloaguen/linkedin-prospection-agent:sha-4411261
     container_name: linkedin-dashboard
     volumes:
       - agent-data:/data:ro

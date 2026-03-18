@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 import structlog
 from playwright.async_api import (
@@ -14,6 +15,7 @@ from playwright.async_api import (
     Geolocation,
     Page,
     Playwright,
+    SetCookieParam,
     async_playwright,
 )
 
@@ -37,10 +39,39 @@ async def _save_cookies(context: BrowserContext) -> None:
         context: Active Playwright browser context.
     """
     session_path = Path(_get_session_path())
-    session_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        session_path.parent.mkdir(parents=True, exist_ok=True)
+    except PermissionError:
+        logger.error(
+            "cookies_save_permission_denied",
+            path=str(session_path),
+            fix="sudo chown -R 1000:1000 /opt/linkedin-agent/data",
+        )
+        raise
     cookies = await context.cookies()
     session_path.write_text(json.dumps(cookies, indent=2))
     logger.info("cookies_saved", path=str(session_path))
+
+
+_VALID_SAME_SITE = {"Strict", "Lax", "None"}
+
+
+def _sanitize_cookies(cookies: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sanitize cookie sameSite values to Playwright-accepted values.
+
+    Args:
+        cookies: Raw cookie list loaded from session file.
+
+    Returns:
+        Cookie list with invalid sameSite values replaced by "None".
+    """
+    sanitized = []
+    for cookie in cookies:
+        c = dict(cookie)
+        if c.get("sameSite") not in _VALID_SAME_SITE:
+            c["sameSite"] = "None"
+        sanitized.append(c)
+    return sanitized
 
 
 async def _load_cookies(context: BrowserContext) -> bool:
@@ -59,7 +90,9 @@ async def _load_cookies(context: BrowserContext) -> bool:
 
     try:
         cookies = json.loads(session_path.read_text())
-        await context.add_cookies(cookies)
+        cookies = _sanitize_cookies(cookies)
+        cookies_typed: list[SetCookieParam] = [SetCookieParam(**c) for c in cookies]
+        await context.add_cookies(cookies_typed)
         logger.info("cookies_loaded", path=str(session_path), count=len(cookies))
         return True
     except Exception as exc:

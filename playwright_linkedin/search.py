@@ -462,6 +462,11 @@ async def _search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
         await page.wait_for_timeout(5_000)
 
     # ── 4. Scroll to trigger lazy-loading ──────────────────────────────────────
+    await simulate_human_scroll(page, scroll_count=8)
+    await page.wait_for_timeout(3_000)
+    # Scroll back to top then re-descend to re-trigger IntersectionObserver
+    await page.evaluate("window.scrollTo(0, 0)")
+    await page.wait_for_timeout(500)
     await simulate_human_scroll(page, scroll_count=5)
     await page.wait_for_timeout(2_000)
 
@@ -492,7 +497,8 @@ async def _search_posts_for_keyword(page: Page, keyword: str) -> list[Post]:
             # Scroll card into viewport to trigger LinkedIn's IntersectionObserver
             # (placeholder divs stay empty until they enter the visible area).
             await element.scroll_into_view_if_needed(timeout=3_000)
-            await page.wait_for_timeout(600)
+            await page.evaluate("window.dispatchEvent(new Event('scroll'))")
+            await page.wait_for_timeout(1_000)
 
             author_url = await asyncio.wait_for(
                 _extract_post_author_url(element), timeout=_ELEMENT_EXTRACT_TIMEOUT
