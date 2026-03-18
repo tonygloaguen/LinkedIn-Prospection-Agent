@@ -14,8 +14,10 @@ from playwright.async_api import (
     Geolocation,
     Page,
     Playwright,
+    SetCookieParam,
     async_playwright,
 )
+from typing import Any
 
 from utils.anti_detection import get_random_user_agent, get_random_viewport
 
@@ -54,7 +56,7 @@ async def _save_cookies(context: BrowserContext) -> None:
 _VALID_SAME_SITE = {"Strict", "Lax", "None"}
 
 
-def _sanitize_cookies(cookies: list[dict]) -> list[dict]:
+def _sanitize_cookies(cookies: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Sanitize cookie sameSite values to Playwright-accepted values.
 
     Args:
@@ -89,7 +91,8 @@ async def _load_cookies(context: BrowserContext) -> bool:
     try:
         cookies = json.loads(session_path.read_text())
         cookies = _sanitize_cookies(cookies)
-        await context.add_cookies(cookies)
+        cookies_typed: list[SetCookieParam] = [SetCookieParam(**c) for c in cookies]
+        await context.add_cookies(cookies_typed)
         logger.info("cookies_loaded", path=str(session_path), count=len(cookies))
         return True
     except Exception as exc:
