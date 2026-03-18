@@ -60,7 +60,7 @@ async def simulate_human_scroll(page: Page, scroll_count: int = 3) -> None:
     """
     for i in range(scroll_count):
         delta = random.randint(200, 600)
-        await page.mouse.wheel(0, delta)
+        await page.evaluate(f"window.scrollBy(0, {delta})")
         await page.wait_for_timeout(random.randint(300, 800))
     logger.debug("human_scroll_done", scroll_count=scroll_count)
 
